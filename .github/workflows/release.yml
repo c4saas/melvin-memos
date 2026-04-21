@@ -66,13 +66,29 @@ jobs:
         env:
           COMMERCIAL_TOKEN: ${{ secrets.COMMERCIAL_REPO_TOKEN }}
         if: env.COMMERCIAL_TOKEN != ''
+        continue-on-error: true
         run: |
+          set -euxo pipefail
           VERSION=${{ steps.version.outputs.version }}
-          git clone https://x-access-token:${COMMERCIAL_TOKEN}@github.com/c4saas/memos-commercial.git /tmp/commercial
-          cd /tmp/commercial
-          sed -i "s|ghcr.io/c4saas/melvin-memos:[0-9][0-9.]*|ghcr.io/c4saas/melvin-memos:${VERSION}|g" docker-compose.yml
-          git config user.name  "GitHub Actions"
-          git config user.email "actions@github.com"
+          WORK=/tmp/commercial
+          rm -rf "$WORK"
+
+          git clone --depth 1 \
+            "https://x-access-token:${COMMERCIAL_TOKEN}@github.com/c4saas/memos-commercial.git" \
+            "$WORK"
+          cd "$WORK"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          sed -i "s|ghcr.io/c4saas/melvin-memos:[0-9][0-9.]\\+|ghcr.io/c4saas/melvin-memos:${VERSION}|g" docker-compose.yml
+          sed -i "s|APP_VERSION:-[0-9][0-9.]\\+|APP_VERSION:-${VERSION}|g" docker-compose.yml
+
+          if git diff --quiet docker-compose.yml; then
+            echo "memos-commercial already at v${VERSION}; nothing to push."
+            exit 0
+          fi
+
           git add docker-compose.yml
-          git diff --staged --quiet || git commit -m "release: update to v${VERSION}"
+          git commit -m "release: bump to v${VERSION}"
           git push origin main
