@@ -23,9 +23,20 @@ function maskKey(k: string | null): string | null {
   return k.slice(0, 4) + '••••' + k.slice(-4);
 }
 
+function platformMeta() {
+  return {
+    googleOAuth: {
+      managed: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    },
+    microsoftOAuth: {
+      managed: Boolean(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
+    },
+  };
+}
+
 settingsRouter.get('/', async (_req, res) => {
   const s = await getSettings();
-  res.json(redact(s));
+  res.json({ ...redact(s), platform: platformMeta() });
 });
 
 const ALLOWED_SECTIONS = new Set(['providers', 'integrations', 'bot', 'melvinos']);
@@ -37,7 +48,7 @@ settingsRouter.patch('/', async (req, res) => {
     if (ALLOWED_SECTIONS.has(k)) filtered[k] = v;
   }
   const next = await saveSettings(filtered);
-  res.json(redact(next));
+  res.json({ ...redact(next), platform: platformMeta() });
 });
 
 settingsRouter.post('/notion/provision-database', async (req, res) => {

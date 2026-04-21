@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plug, Unplug, RefreshCw, Check } from 'lucide-react';
 import { api } from '../lib/api';
 import { Button } from '../components/Button';
+import { useToast } from '../components/Toast';
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
@@ -18,8 +19,20 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={'w-full bg-input border border-border rounded-md px-3 py-2 text-sm ' + (props.className ?? '')} />;
 }
 
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 48 48" className="w-4 h-4" aria-hidden="true">
+      <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+      <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
+      <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+      <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+    </svg>
+  );
+}
+
 export default function SettingsPage() {
   const qc = useQueryClient();
+  const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings });
   const { data: calendars = [] } = useQuery({ queryKey: ['calendars'], queryFn: api.listCalendars });
 
@@ -28,13 +41,27 @@ export default function SettingsPage() {
 
   const saveMut = useMutation({
     mutationFn: (body: any) => api.saveSettings(body),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      toast.success('Settings saved');
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to save settings');
+    },
   });
 
-  const syncMut = useMutation({ mutationFn: api.syncCalendars });
+  const syncMut = useMutation({
+    mutationFn: api.syncCalendars,
+    onSuccess: (r) => toast.success(`Calendars synced${r?.synced != null ? ` · ${r.synced} new meetings` : ''}`),
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : 'Sync failed'),
+  });
   const removeCalMut = useMutation({
     mutationFn: (id: string) => api.deleteCalendar(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['calendars'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['calendars'] });
+      toast.info('Calendar disconnected');
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : 'Failed to disconnect'),
   });
 
   const set = (path: string[], value: any) => {
@@ -59,19 +86,30 @@ export default function SettingsPage() {
       <section className="surface-1 p-6 mb-5">
         <div className="flex items-center justify-between mb-5">
           <h2 className="font-display font-semibold flex items-center gap-2"><Plug className="w-4 h-4" /> Calendar accounts</h2>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={() => syncMut.mutate()} disabled={syncMut.isPending}>
-              <RefreshCw className={'w-3.5 h-3.5 ' + (syncMut.isPending ? 'animate-spin' : '')} /> Sync now
-            </Button>
-            <a href="/api/calendar/google/start"><Button variant="secondary" size="sm">+ Google</Button></a>
-            <a href="/api/calendar/microsoft/start"><Button variant="secondary" size="sm">+ Outlook</Button></a>
-          </div>
+          <Button variant="ghost" size="sm" onClick={() => syncMut.mutate()} disabled={syncMut.isPending}>
+            <RefreshCw className={'w-3.5 h-3.5 ' + (syncMut.isPending ? 'animate-spin' : '')} /> Sync now
+          </Button>
         </div>
+
         {calendars.length === 0 && (
-          <div className="text-sm text-muted-foreground text-center py-6">
-            No calendars connected. Add Google or Outlook to auto-join meetings.
+          <div className="text-sm text-muted-foreground text-center py-3 mb-2">
+            No calendars connected yet. Connect one below to auto-join meetings.
           </div>
         )}
+
+        <div className="flex flex-wrap gap-2 mb-1">
+          <a href="/api/calendar/google/start">
+            <Button variant="primary" size="md">
+              <GoogleMark /> Sign in with Google
+            </Button>
+          </a>
+          <a href="/api/calendar/microsoft/start">
+            <Button variant="secondary" size="md">+ Microsoft / Outlook</Button>
+          </a>
+        </div>
+        <div className="text-[11px] text-muted-foreground mt-2">
+          Read-only access to your calendar. Used only to detect upcoming meetings.
+        </div>
         {calendars.map(c => (
           <div key={c.id} className="flex items-center justify-between py-3 border-t border-border first:border-t-0">
             <div>
@@ -132,10 +170,10 @@ export default function SettingsPage() {
               if (!parentId) return;
               try {
                 const r = await api.provisionNotionDb(parentId, 'Memos Meetings');
-                alert('Database created: ' + r.databaseId);
+                toast.success('Database created · ' + r.databaseId.slice(0, 8));
                 qc.invalidateQueries({ queryKey: ['settings'] });
               } catch (e) {
-                alert(e instanceof Error ? e.message : 'Failed');
+                toast.error(e instanceof Error ? e.message : 'Failed to provision database');
               }
             }}>
               Provision
@@ -144,12 +182,17 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      <section className="surface-1 p-6 mb-5">
-        <h2 className="font-display font-semibold mb-4">Google Calendar OAuth</h2>
-        <Field label="Client ID"><Input placeholder={form.integrations?.googleOAuth?.clientId ?? ''} onChange={e => set(['integrations', 'googleOAuth', 'clientId'], e.target.value)} /></Field>
-        <Field label="Client Secret"><Input type="password" placeholder={form.integrations?.googleOAuth?.clientSecret ?? ''} onChange={e => set(['integrations', 'googleOAuth', 'clientSecret'], e.target.value)} /></Field>
-        <Button variant="primary" size="sm" onClick={save('integrations')}><Check className="w-3.5 h-3.5" /> Save</Button>
-      </section>
+      {!settings.platform?.googleOAuth?.managed && (
+        <section className="surface-1 p-6 mb-5">
+          <h2 className="font-display font-semibold mb-4">Google Calendar OAuth</h2>
+          <div className="text-xs text-muted-foreground mb-4">
+            Advanced: override the platform-provided OAuth credentials with your own.
+          </div>
+          <Field label="Client ID"><Input placeholder={form.integrations?.googleOAuth?.clientId ?? ''} onChange={e => set(['integrations', 'googleOAuth', 'clientId'], e.target.value)} /></Field>
+          <Field label="Client Secret"><Input type="password" placeholder={form.integrations?.googleOAuth?.clientSecret ?? ''} onChange={e => set(['integrations', 'googleOAuth', 'clientSecret'], e.target.value)} /></Field>
+          <Button variant="primary" size="sm" onClick={save('integrations')}><Check className="w-3.5 h-3.5" /> Save</Button>
+        </section>
+      )}
 
       <section className="surface-1 p-6 mb-5">
         <h2 className="font-display font-semibold mb-4">Microsoft / Outlook OAuth</h2>
