@@ -45,7 +45,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export type MeUser = { id: string; email: string; name: string | null; timezone: string };
 
 export const api = {
-  me: () => request<{ user: MeUser | null; mode: string; loginRequired: boolean }>('/api/auth/me'),
+  me: () => request<{ user: MeUser | null; mode: string; loginRequired: boolean; needsSetup?: boolean }>('/api/auth/me'),
+  setupStatus: () => request<{ needsSetup: boolean; defaultEmail?: string; defaultName?: string }>('/api/auth/setup-status'),
+  setup: (email: string, password: string, name?: string) =>
+    request<{ user: MeUser }>('/api/auth/setup', { method: 'POST', body: JSON.stringify({ email, password, name }) }),
   login: (email: string, password: string) => request<{ user: MeUser }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 

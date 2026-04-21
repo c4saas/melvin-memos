@@ -5,6 +5,7 @@ import MeetingsPage from './pages/MeetingsPage';
 import MeetingDetailPage from './pages/MeetingDetailPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
+import SetupPage from './pages/SetupPage';
 import { api } from './lib/api';
 import { cn } from './lib/utils';
 import { useBranding } from './hooks/useBranding';
@@ -113,12 +114,30 @@ export default function App() {
   const qc = useQueryClient();
   useBranding();
   const { data: me, isLoading } = useQuery({ queryKey: ['me'], queryFn: api.me });
+  const { data: setup } = useQuery({
+    queryKey: ['setup-status'],
+    queryFn: api.setupStatus,
+    enabled: Boolean(me?.needsSetup),
+  });
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-muted-foreground text-sm">
         Loading…
       </div>
+    );
+  }
+
+  if (me?.needsSetup) {
+    return (
+      <SetupPage
+        defaultEmail={setup?.defaultEmail}
+        defaultName={setup?.defaultName}
+        onComplete={() => {
+          qc.invalidateQueries({ queryKey: ['me'] });
+          qc.invalidateQueries({ queryKey: ['setup-status'] });
+        }}
+      />
     );
   }
 

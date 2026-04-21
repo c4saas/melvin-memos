@@ -60,12 +60,21 @@ async function main() {
     message: { error: 'Too many login attempts. Try again in 15 minutes.' },
   });
 
+  const setupLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 10,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: 'Too many setup attempts. Try again later.' },
+  });
+
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'memos', version: process.env.APP_VERSION ?? 'dev' });
   });
 
   app.use('/api/branding', brandingRouter);
   app.use('/api/auth/login', authLimiter);
+  app.use('/api/auth/setup', setupLimiter);
   app.use('/api/auth', authRouter);
   app.use('/api/meetings', meetingsRouter);
   app.use('/api/calendar', calendarRouter);
