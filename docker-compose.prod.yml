@@ -1,0 +1,101 @@
+# ─────────────────────────────────────────────────────────────
+#  Memos by MelvinOS — Production (GHCR image)
+#
+#  Use this compose file for customer / partner / demo / personal
+#  deployments. It pulls a pinned image from ghcr.io instead of
+#  building from source.
+#
+#  Update a deployment:
+#    1. Change APP_VERSION in .env (or the image tag below)
+#    2. docker compose -f docker-compose.prod.yml pull
+#    3. docker compose -f docker-compose.prod.yml up -d
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-memos}_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: memos
+      POSTGRES_USER: memos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - memos_pg:/var/lib/postgresql/data
+    networks:
+      - memos_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memos -d memos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-memos}_ollama
+    restart: unless-stopped
+    volumes:
+      - memos_ollama:/root/.ollama
+    networks:
+      - memos_net
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+
+  memos:
+    image: ghcr.io/c4saas/melvin-memos:${APP_VERSION:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-memos}_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3100
+      DATABASE_URL: postgres://memos:${POSTGRES_PASSWORD}@postgres:5432/memos
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3100}
+      APP_VERSION: ${APP_VERSION:-latest}
+      MEMOS_SINGLE_USER: ${MEMOS_SINGLE_USER:-}
+      MEMOS_DEFAULT_EMAIL: ${MEMOS_DEFAULT_EMAIL:-admin@example.com}
+      MEMOS_DEFAULT_NAME: ${MEMOS_DEFAULT_NAME:-Admin}
+      MEMOS_DEMO_PASSWORD: ${MEMOS_DEMO_PASSWORD:-}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set in .env}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+      BRAND_NAME: ${BRAND_NAME:-Memos}
+      BRAND_SHORT: ${BRAND_SHORT:-Memos}
+      BRAND_TAGLINE: ${BRAND_TAGLINE:-by MelvinOS}
+      BRAND_PRIMARY_HSL: ${BRAND_PRIMARY_HSL:-217 91% 60%}
+      BRAND_ACCENT_HSL: ${BRAND_ACCENT_HSL:-262 83% 70%}
+      BRAND_SUPPORT_EMAIL: ${BRAND_SUPPORT_EMAIL:-}
+      BRAND_LOGO_URL: ${BRAND_LOGO_URL:-}
+      BRAND_FAVICON_URL: ${BRAND_FAVICON_URL:-}
+      BRAND_PRODUCT_URL: ${BRAND_PRODUCT_URL:-https://melvinos.com}
+      BRAND_POWERED_BY: ${BRAND_POWERED_BY:-MelvinOS}
+      BRAND_HIDE_POWERED_BY: ${BRAND_HIDE_POWERED_BY:-0}
+    ports:
+      - "${HOST_PORT:-3100}:3100"
+    volumes:
+      - memos_recordings:/data/recordings
+    networks:
+      - memos_net
+    shm_size: 1gb
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3100/api/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  memos_pg:
+  memos_ollama:
+  memos_recordings:
+
+networks:
+  memos_net:

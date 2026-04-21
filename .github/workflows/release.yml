@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────
+#  Memos by MelvinOS — Build & Publish
+#  Trigger: pushing a version tag (e.g. v0.2.0)
+#  Publishes ghcr.io/c4saas/melvin-memos:<version> + :latest
+#  Usage:   git tag v0.2.0 && git push origin v0.2.0
+# ─────────────────────────────────────────────────────────────
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/c4saas/melvin-memos
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Memos ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+
+      - name: Update memos-commercial (optional)
+        env:
+          COMMERCIAL_TOKEN: ${{ secrets.COMMERCIAL_REPO_TOKEN }}
+        if: env.COMMERCIAL_TOKEN != ''
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          git clone https://x-access-token:${COMMERCIAL_TOKEN}@github.com/c4saas/memos-commercial.git /tmp/commercial
+          cd /tmp/commercial
+          sed -i "s|ghcr.io/c4saas/melvin-memos:[0-9][0-9.]*|ghcr.io/c4saas/melvin-memos:${VERSION}|g" docker-compose.yml
+          git config user.name  "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add docker-compose.yml
+          git diff --staged --quiet || git commit -m "release: update to v${VERSION}"
+          git push origin main
