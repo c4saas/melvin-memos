@@ -1,6 +1,6 @@
 {
   "name": "melvin-memos",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Memos by MelvinOS — meeting notetaker for Google Meet, Zoom, and Teams",
   "type": "module",
   "license": "MIT",
