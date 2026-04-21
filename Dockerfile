@@ -36,9 +36,6 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --ignore-scripts
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/shared ./shared
-COPY --from=builder /app/server ./server
-COPY --from=builder /app/migrations ./migrations
 
 COPY docker/entrypoint.sh /usr/local/bin/memos-entrypoint
 RUN chmod +x /usr/local/bin/memos-entrypoint
