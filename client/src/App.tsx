@@ -1,14 +1,16 @@
 import { Route, Switch, Link, useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Settings as SettingsIcon, Mic, LogOut } from 'lucide-react';
+import { FileText, Settings as SettingsIcon, Mic, LogOut, BookOpen } from 'lucide-react';
 import MeetingsPage from './pages/MeetingsPage';
 import MeetingDetailPage from './pages/MeetingDetailPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import SetupPage from './pages/SetupPage';
+import DocsPage from './pages/DocsPage';
 import { api } from './lib/api';
 import { cn } from './lib/utils';
 import { useBranding } from './hooks/useBranding';
+import { ThemeToggle } from './components/ThemeToggle';
 
 function Sidebar() {
   const [location] = useLocation();
@@ -19,6 +21,7 @@ function Sidebar() {
   const nav = [
     { href: '/', icon: FileText, label: 'Meetings' },
     { href: '/settings', icon: SettingsIcon, label: 'Settings' },
+    { href: '/docs', icon: BookOpen, label: 'Docs' },
   ];
 
   const logout = async () => {
@@ -67,7 +70,8 @@ function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border">
+      <div className="p-4 border-t border-sidebar-border space-y-3">
+        <ThemeToggle />
         {me?.user ? (
           <div>
             <div className="text-xs text-muted-foreground mb-1 truncate">{me.user.email}</div>
@@ -96,6 +100,7 @@ function AppShell() {
           <Route path="/" component={MeetingsPage} />
           <Route path="/meetings/:id" component={MeetingDetailPage} />
           <Route path="/settings" component={SettingsPage} />
+          <Route path="/docs" component={DocsPage} />
         </Switch>
         {!brand.hidePoweredBy && brand.poweredBy && brand.name !== brand.poweredBy && (
           <div className="fixed bottom-3 right-4 text-[10px] text-muted-foreground/60 font-sans">

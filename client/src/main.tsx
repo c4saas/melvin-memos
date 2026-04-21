@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './index.css';
+import { initTheme } from './hooks/useTheme';
+
+initTheme();
 
 const brand = window.__BRANDING__;
 if (brand?.name) document.title = `${brand.name} — ${brand.tagline}`;

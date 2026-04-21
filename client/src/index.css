@@ -4,7 +4,54 @@
 
 /* Memos by MelvinOS — design system ported from MelvinOS */
 
-:root,
+:root {
+  /* Light theme */
+  --background:      0 0% 100%;
+  --foreground:      222 47% 11%;
+  --border:          220 14% 90%;
+  --input:           220 14% 96%;
+
+  --card:            0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --card-border:     220 14% 90%;
+
+  --sidebar:         220 14% 98%;
+  --sidebar-foreground: 222 47% 15%;
+  --sidebar-border:  220 14% 90%;
+  --sidebar-primary: 217 91% 55%;
+
+  --popover:         0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --popover-border:  220 14% 88%;
+
+  --primary:         217 91% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary:       220 14% 94%;
+  --secondary-foreground: 222 47% 15%;
+
+  --muted:           220 14% 94%;
+  --muted-foreground: 220 9% 46%;
+  --accent:          220 14% 93%;
+  --accent-foreground: 222 47% 15%;
+
+  --destructive:     0 72% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --ring:            217 91% 55%;
+
+  --success: 142 71% 40%;
+  --warning: 32 95% 50%;
+
+  --font-sans:  "Inter", "system-ui", sans-serif;
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", "Consolas", monospace;
+
+  --radius: 0.75rem;
+
+  --body-bg-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, hsl(217 91% 60% / 0.08), transparent),
+    radial-gradient(ellipse 60% 50% at 100% 20%, hsl(262 83% 60% / 0.05), transparent);
+}
+
 .dark {
   --background:      222 47% 5%;
   --foreground:      210 40% 96%;
@@ -41,11 +88,9 @@
   --success: 142 71% 45%;
   --warning: 32 95% 60%;
 
-  --font-sans:  "Inter", "system-ui", sans-serif;
-  --font-display: "Space Grotesk", "Inter", sans-serif;
-  --font-mono: "JetBrains Mono", "Consolas", monospace;
-
-  --radius: 0.75rem;
+  --body-bg-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, hsl(217 91% 20% / 0.15), transparent),
+    radial-gradient(ellipse 60% 50% at 100% 20%, hsl(262 83% 28% / 0.08), transparent);
 }
 
 * { border-color: hsl(var(--border)); }
@@ -57,9 +102,7 @@ body {
   color: hsl(var(--foreground));
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  background-image:
-    radial-gradient(ellipse 80% 50% at 50% -20%, hsl(217 91% 20% / 0.15), transparent),
-    radial-gradient(ellipse 60% 50% at 100% 20%, hsl(262 83% 28% / 0.08), transparent);
+  background-image: var(--body-bg-image);
   background-attachment: fixed;
 }
 

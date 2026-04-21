@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Mic } from 'lucide-react';
 import { Button } from '../components/Button';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { useBranding } from '../hooks/useBranding';
 
 export default function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
@@ -35,7 +36,8 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4 relative">
+      <div className="absolute top-4 right-4"><ThemeToggle compact /></div>
       <div className="w-full max-w-[400px]">
         <div className="flex items-center gap-3 mb-8 justify-center">
           {brand.logoUrl ? (
