@@ -1,6 +1,6 @@
-import { google } from 'googleapis';
+import { google, calendar_v3 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { calendarAccounts } from '../../shared/schema';
 import { getSettings } from '../settings';
@@ -18,9 +18,22 @@ const SCOPES = [
 ];
 
 async function getOAuthClient(redirectUri: string): Promise<OAuth2Client> {
-  const s = await getSettings();
-  const clientId = s.integrations.googleOAuth.clientId ?? process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = s.integrations.googleOAuth.clientSecret ?? process.env.GOOGLE_CLIENT_SECRET;
+  const envId = process.env.GOOGLE_CLIENT_ID;
+  const envSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const platformManaged = Boolean(envId && envSecret);
+
+  let clientId: string | null | undefined;
+  let clientSecret: string | null | undefined;
+
+  if (platformManaged) {
+    clientId = envId;
+    clientSecret = envSecret;
+  } else {
+    const s = await getSettings();
+    clientId = s.integrations.googleOAuth.clientId ?? undefined;
+    clientSecret = s.integrations.googleOAuth.clientSecret ?? undefined;
+  }
+
   if (!clientId || !clientSecret) throw new Error('Google OAuth not configured');
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
@@ -29,7 +42,10 @@ export async function buildAuthUrl(redirectUri: string, state: string): Promise<
   const client = await getOAuthClient(redirectUri);
   return client.generateAuthUrl({
     access_type: 'offline',
-    prompt: 'consent',
+    // 'select_account consent' forces Google to show the account chooser even if
+    // the user is already signed into one — required so users can add a second
+    // Gmail to Memos without being auto-reconnected as the first.
+    prompt: 'select_account consent',
     scope: SCOPES,
     state,
     include_granted_scopes: true,
@@ -46,8 +62,10 @@ export async function exchangeCode(code: string, redirectUri: string, userId: st
   const email = profile.email;
   if (!email) throw new Error('Google did not return an email');
 
+  // Scope by userId — don't collide a different user's account with the same email.
   const existing = await db.select().from(calendarAccounts)
-    .where(eq(calendarAccounts.accountEmail, email)).limit(1);
+    .where(and(eq(calendarAccounts.userId, userId), eq(calendarAccounts.accountEmail, email)))
+    .limit(1);
 
   const values = {
     userId,
@@ -119,21 +137,37 @@ export function extractMeetingUrl(text: string): { url: string; platform: 'googl
   return null;
 }
 
-export async function listUpcomingEvents(accountId: string, withinHours = 24): Promise<CalendarEventSummary[]> {
+export async function listUpcomingEvents(accountId: string, withinHours = 14 * 24): Promise<CalendarEventSummary[]> {
   const auth = await authForAccount(accountId);
   const cal = google.calendar({ version: 'v3', auth });
 
   const now = new Date();
   const timeMax = new Date(Date.now() + withinHours * 3600 * 1000);
 
-  const { data } = await cal.events.list({
-    calendarId: 'primary',
-    timeMin: now.toISOString(),
-    timeMax: timeMax.toISOString(),
-    singleEvents: true,
-    orderBy: 'startTime',
-    maxResults: 50,
-  });
+  const calendarList = await cal.calendarList.list({ minAccessRole: 'reader', maxResults: 250 });
+  const calendarIds = (calendarList.data.items ?? [])
+    .filter(c => c.id && !c.deleted && c.selected !== false)
+    .map(c => c.id!);
+
+  const all: NonNullable<calendar_v3.Schema$Events['items']> = [];
+  for (const calendarId of calendarIds) {
+    try {
+      const resp = await cal.events.list({
+        calendarId,
+        timeMin: now.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: true,
+        orderBy: 'startTime',
+        maxResults: 250,
+      });
+      if (resp.data.items) all.push(...resp.data.items);
+    } catch (err) {
+      log.warn('skipping calendar', { calendarId, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const data = { items: all };
+  const rawCount = data.items?.length ?? 0;
 
   const events: CalendarEventSummary[] = [];
   for (const e of data.items ?? []) {
@@ -162,11 +196,17 @@ export async function listUpcomingEvents(accountId: string, withinHours = 24): P
       end: e.end?.dateTime || e.end?.date ? new Date(e.end!.dateTime ?? e.end!.date!) : undefined,
       meetingUrl: meeting.url,
       platform: meeting.platform,
-      attendees: (e.attendees ?? []).map(a => ({ email: a.email ?? '', name: a.displayName ?? undefined })),
+      attendees: (e.attendees ?? []).map((a: calendar_v3.Schema$EventAttendee) => ({ email: a.email ?? '', name: a.displayName ?? undefined })),
       host: e.organizer?.email ?? undefined,
     });
   }
 
-  log.info('listed events', { accountId, count: events.length });
+  log.info('listed events', {
+    accountId,
+    calendarsScanned: calendarIds.length,
+    rawCount,
+    withVideoLink: events.length,
+    windowHours: withinHours,
+  });
   return events;
 }

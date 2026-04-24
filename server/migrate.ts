@@ -103,6 +103,37 @@ CREATE TABLE IF NOT EXISTS api_keys (
   last_used_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Backfills for columns added after v0.1.0
+ALTER TABLE meetings ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE TABLE IF NOT EXISTS highlights (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  note TEXT,
+  start_sec INT,
+  end_sec INT,
+  color TEXT NOT NULL DEFAULT 'yellow',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS highlight_meeting_idx ON highlights(meeting_id);
+CREATE INDEX IF NOT EXISTS highlight_user_idx ON highlights(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS embeddings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  meeting_id UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  chunk_index INT NOT NULL,
+  source TEXT NOT NULL,
+  text TEXT NOT NULL,
+  vector JSONB NOT NULL,
+  model TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS embedding_user_meeting_idx ON embeddings(user_id, meeting_id);
+CREATE UNIQUE INDEX IF NOT EXISTS embedding_meeting_chunk_uniq ON embeddings(meeting_id, chunk_index, source);
 `;
 
 export async function runMigrations(): Promise<void> {

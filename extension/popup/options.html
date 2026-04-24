@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Memos Recorder — Settings</title>
+    <link rel="stylesheet" href="popup.css" />
+    <style>
+      html, body { width: 420px; min-height: 240px; }
+      #root { padding: 24px; }
+      h1 { font-size: 16px; font-weight: 600; margin-bottom: 14px; }
+      .row { margin-bottom: 14px; }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <h1>Memos Recorder settings</h1>
+      <div class="row">
+        <label class="label" for="endpoint">Memos server URL</label>
+        <input type="text" id="endpoint" placeholder="https://memos.c4saas.com" />
+      </div>
+      <div class="actions">
+        <button id="save" class="btn btn-primary">Save</button>
+      </div>
+      <div id="status" class="help" style="margin-top:14px;"></div>
+    </div>
+    <script>
+      const DEFAULT = 'https://memos.c4saas.com';
+      const $ = (id) => document.getElementById(id);
+      (async () => {
+        const { endpoint } = await chrome.storage.sync.get('endpoint');
+        $('endpoint').value = endpoint || DEFAULT;
+      })();
+      $('save').onclick = async () => {
+        let v = $('endpoint').value.trim();
+        if (!/^https?:\/\//.test(v)) v = 'https://' + v;
+        v = v.replace(/\/+$/, '');
+        await chrome.storage.sync.set({ endpoint: v });
+        $('status').textContent = 'Saved. Reopen the popup to apply.';
+      };
+    </script>
+  </body>
+</html>

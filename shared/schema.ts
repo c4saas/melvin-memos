@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, jsonb, boolean, uuid, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, jsonb, boolean, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 import { z } from 'zod';
@@ -49,6 +49,7 @@ export const meetings = pgTable('meetings', {
   summary: text('summary'),
   actionItems: jsonb('action_items').$type<Array<{ owner?: string; task: string; deadline?: string }>>().default([]).notNull(),
   speakers: jsonb('speakers').$type<string[]>().default([]).notNull(),
+  tags: jsonb('tags').$type<string[]>().default([]).notNull(),
   notionPageId: text('notion_page_id'),
   notionPageUrl: text('notion_page_url'),
   durationSeconds: integer('duration_seconds'),
@@ -102,11 +103,42 @@ export const apiKeys = pgTable('api_keys', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const embeddings = pgTable('embeddings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  meetingId: uuid('meeting_id').references(() => meetings.id, { onDelete: 'cascade' }).notNull(),
+  chunkIndex: integer('chunk_index').notNull(),
+  source: text('source').notNull(),              // 'summary' | 'transcript'
+  text: text('text').notNull(),
+  vector: jsonb('vector').$type<number[]>().notNull(),
+  model: text('model').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  userMeetingIdx: index('embedding_user_meeting_idx').on(t.userId, t.meetingId),
+  meetingChunkUniq: uniqueIndex('embedding_meeting_chunk_uniq').on(t.meetingId, t.chunkIndex, t.source),
+}));
+
+export const highlights = pgTable('highlights', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  meetingId: uuid('meeting_id').references(() => meetings.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  text: text('text').notNull(),
+  note: text('note'),
+  startSec: integer('start_sec'),
+  endSec: integer('end_sec'),
+  color: text('color').default('yellow').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  meetingIdx: index('highlight_meeting_idx').on(t.meetingId),
+  userIdx: index('highlight_user_idx').on(t.userId, t.createdAt),
+}));
+
 export const platformSettingsSchema = z.object({
   providers: z.object({
     ollama: z.object({
       baseUrl: z.string().default('http://ollama:11434'),
       summaryModel: z.string().default('llama3.1:8b'),
+      apiKey: z.string().nullable().default(null),
       enabled: z.boolean().default(true),
     }).default({}),
     groq: z.object({
@@ -132,6 +164,11 @@ export const platformSettingsSchema = z.object({
       clientSecret: z.string().nullable().default(null),
       tenantId: z.string().default('common'),
     }).default({}),
+    linear: z.object({
+      apiKey: z.string().nullable().default(null),
+      teamId: z.string().nullable().default(null),
+      defaultProjectId: z.string().nullable().default(null),
+    }).default({}),
   }).default({}),
   bot: z.object({
     defaultName: z.string().default('Melvin Notetaker'),
@@ -141,6 +178,33 @@ export const platformSettingsSchema = z.object({
   melvinos: z.object({
     baseUrl: z.string().nullable().default(null),
     webhookSecret: z.string().nullable().default(null),
+  }).default({}),
+  email: z.object({
+    smtpHost: z.string().nullable().default(null),
+    smtpPort: z.number().int().default(587),
+    smtpUser: z.string().nullable().default(null),
+    smtpPassword: z.string().nullable().default(null),
+    smtpSecure: z.boolean().default(false),           // true = SSL (465), false = STARTTLS (587)
+    fromAddress: z.string().nullable().default(null), // e.g. "Memos <noreply@melvinos.com>"
+  }).default({}),
+  webhooks: z.object({
+    outbound: z.array(z.object({
+      id: z.string(),
+      name: z.string(),
+      url: z.string(),
+      secret: z.string().nullable().default(null),      // HMAC-SHA256 signing secret
+      events: z.array(z.enum(['meeting.completed', 'meeting.failed'])).default(['meeting.completed']),
+      enabled: z.boolean().default(true),
+      createdAt: z.string().optional(),
+    })).default([]),
+  }).default({}),
+  digest: z.object({
+    enabled: z.boolean().default(false),
+    frequency: z.enum(['daily', 'weekly']).default('daily'),
+    hourOfDay: z.number().int().min(0).max(23).default(8),   // 8am local
+    dayOfWeek: z.number().int().min(0).max(6).default(1),    // Monday (for weekly)
+    includeActionItems: z.boolean().default(true),
+    includeRecentMeetings: z.boolean().default(true),
   }).default({}),
 });
 
@@ -164,5 +228,5 @@ export const MEETING_STATUSES = [
 ] as const;
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 
-export const PLATFORMS = ['google_meet', 'zoom', 'teams'] as const;
+export const PLATFORMS = ['google_meet', 'zoom', 'teams', 'voice'] as const;
 export type Platform = (typeof PLATFORMS)[number];

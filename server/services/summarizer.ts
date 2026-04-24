@@ -39,10 +39,12 @@ export async function summarizeTranscript(
   context: { title?: string; date: string; durationSec?: number },
 ): Promise<MeetingSummary> {
   const settings = await getSettings();
-  const baseUrl = settings.providers.ollama.baseUrl;
+  const baseUrl = settings.providers.ollama.baseUrl.replace(/\/+$/, '');
   const model = settings.providers.ollama.summaryModel;
+  const apiKey = settings.providers.ollama.apiKey;
+  const isCloud = /ollama\.com/i.test(baseUrl);
 
-  log.info('summarizing via ollama', { baseUrl, model, transcriptChars: transcript.length });
+  log.info('summarizing via ollama', { baseUrl, model, isCloud, transcriptChars: transcript.length });
 
   const userMessage = [
     context.title ? `Meeting title: ${context.title}` : '',
@@ -53,9 +55,12 @@ export async function summarizeTranscript(
     transcript,
   ].filter(Boolean).join('\n');
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
   const res = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({
       model,
       stream: false,

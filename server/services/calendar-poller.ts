@@ -8,14 +8,17 @@ import { createLogger } from '../logger';
 
 const log = createLogger('calendar-poller');
 
-export async function syncAllCalendars(): Promise<{ synced: number }> {
+export async function syncAllCalendars(): Promise<{ synced: number; eventsWithLinks: number; accounts: number }> {
   const accounts = await db.select().from(calendarAccounts).where(eq(calendarAccounts.status, 'connected'));
   let total = 0;
+  let eventsWithLinks = 0;
   for (const acc of accounts) {
     try {
       const events = acc.provider === 'microsoft'
         ? await listUpcomingMicrosoftEvents(acc.id)
         : await listUpcomingEvents(acc.id);
+
+      eventsWithLinks += events.length;
 
       for (const ev of events) {
         if (!ev.meetingUrl || !ev.platform) continue;
@@ -55,8 +58,8 @@ export async function syncAllCalendars(): Promise<{ synced: number }> {
       log.error('sync failed for account', { accountId: acc.id, error: err instanceof Error ? err.message : err });
     }
   }
-  log.info('calendar sync complete', { newMeetings: total });
-  return { synced: total };
+  log.info('calendar sync complete', { newMeetings: total, eventsWithLinks, accounts: accounts.length });
+  return { synced: total, eventsWithLinks, accounts: accounts.length };
 }
 
 export async function checkAndLaunchDueBots(): Promise<void> {

@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Memos by MelvinOS — Meeting Recorder",
+  "short_name": "Memos Recorder",
+  "version": "0.1.5",
+  "description": "One-click recording of Google Meet, Zoom, and Teams meetings. Captures tab audio + your mic, transcribes, and summarizes.",
+  "action": {
+    "default_title": "Record this meeting with Memos",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "tabCapture",
+    "offscreen",
+    "storage",
+    "scripting",
+    "tabs",
+    "notifications",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "https://*.zoom.us/*",
+    "https://teams.microsoft.com/*",
+    "https://teams.live.com/*",
+    "https://memos.c4saas.com/*",
+    "https://*.melvinos.com/*"
+  ],
+  "options_page": "popup/options.html",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

@@ -1,7 +1,21 @@
 import { promises as fs } from 'fs';
+import { extname, basename } from 'path';
 import Groq from 'groq-sdk';
 import { getSettings } from '../settings';
 import { createLogger } from '../logger';
+
+const EXT_TO_MIME: Record<string, string> = {
+  '.mp3': 'audio/mpeg',
+  '.mpeg': 'audio/mpeg',
+  '.mpga': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.mp4': 'audio/mp4',
+  '.wav': 'audio/wav',
+  '.webm': 'audio/webm',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.flac': 'audio/flac',
+};
 
 const log = createLogger('transcription');
 
@@ -31,8 +45,11 @@ export async function transcribeFile(audioPath: string): Promise<TranscriptResul
   log.info('transcribing', { audioPath, model });
 
   const fileStream = await fs.readFile(audioPath);
-  const blob = new Blob([fileStream], { type: 'audio/mpeg' });
-  const file = new File([blob], 'audio.mp3', { type: 'audio/mpeg' });
+  const ext = extname(audioPath).toLowerCase();
+  const mime = EXT_TO_MIME[ext] ?? 'audio/mpeg';
+  const filename = basename(audioPath) || `audio${ext || '.mp3'}`;
+  const blob = new Blob([fileStream], { type: mime });
+  const file = new File([blob], filename, { type: mime });
 
   const result: any = await client.audio.transcriptions.create({
     file,

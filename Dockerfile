@@ -7,7 +7,7 @@
 FROM node:20-bookworm-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ ca-certificates \
+    python3 make g++ ca-certificates zip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -18,8 +18,13 @@ RUN npm install --ignore-scripts
 COPY . .
 RUN npm run build
 
+# Package the Chrome extension as a downloadable zip.
+RUN mkdir -p dist/downloads && \
+    (cd extension && zip -r ../dist/downloads/memos-extension.zip . -x '*.DS_Store') && \
+    ls -la dist/downloads/
+
 # ── Stage 2: Production ──────────────────────────────────────
-FROM mcr.microsoft.com/playwright:v1.49.0-jammy AS production
+FROM mcr.microsoft.com/playwright:v1.59.1-jammy AS production
 
 # PulseAudio + ffmpeg for meeting-bot audio capture
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -36,6 +41,7 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --ignore-scripts
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/extension ./extension
 
 COPY docker/entrypoint.sh /usr/local/bin/memos-entrypoint
 RUN chmod +x /usr/local/bin/memos-entrypoint

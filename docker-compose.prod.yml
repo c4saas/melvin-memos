@@ -86,6 +86,7 @@ services:
       - "${HOST_PORT:-3100}:3100"
     volumes:
       - memos_recordings:/data/recordings
+      - memos_bot_session:/data/bot-session
     networks:
       - memos_net
     shm_size: 1gb
@@ -100,6 +101,7 @@ volumes:
   memos_pg:
   memos_ollama:
   memos_recordings:
+  memos_bot_session:
 
 networks:
   memos_net:

@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
-import { users } from '../../shared/schema';
+import { users, apiKeys } from '../../shared/schema';
+import { generateApiKey, requireAuth } from '../auth';
 import { createLogger } from '../logger';
 
 export const authRouter = Router();
@@ -98,6 +99,33 @@ authRouter.post('/logout', (req, res) => {
   req.session?.destroy(() => {});
   res.json({ ok: true });
 });
+
+/**
+ * Issue a bearer token for the Chrome extension (or any out-of-browser client).
+ * Must be called from an authenticated web session. Revokes any prior extension
+ * key for the same user so only one install is trusted at a time.
+ */
+authRouter.post('/issue-extension-token', async (req, res) => {
+  const userId = req.session?.userId;
+  if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+  // Revoke any existing extension tokens for this user
+  await db.delete(apiKeys).where(and(eq(apiKeys.userId, userId), eq(apiKeys.name, 'extension')));
+
+  const { plain, hash, prefix } = generateApiKey();
+  await db.insert(apiKeys).values({
+    userId,
+    name: 'extension',
+    keyHash: hash,
+    prefix,
+  });
+
+  log.info('issued extension token', { userId, prefix });
+  // Return the plain token exactly once.
+  res.json({ token: plain, prefix });
+});
+
+authRouter.get('/ping', requireAuth, (_req, res) => res.json({ ok: true }));
 
 authRouter.post('/change-password', async (req, res) => {
   const userId = req.session?.userId;

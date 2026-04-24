@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { syncAllCalendars, checkAndLaunchDueBots } from './services/calendar-poller';
+import { maybeSendScheduledDigests } from './services/digest';
 import { createLogger } from './logger';
 
 const log = createLogger('scheduler');
@@ -12,6 +13,11 @@ export function startScheduler() {
 
   cron.schedule('* * * * *', () => {
     checkAndLaunchDueBots().catch(err => log.error('due-bots check error', err));
+  });
+
+  // Hourly digest check: fires at the top of each hour, respects user prefs.
+  cron.schedule('0 * * * *', () => {
+    maybeSendScheduledDigests().catch(err => log.error('digest scheduler error', err));
   });
 
   setTimeout(() => {
