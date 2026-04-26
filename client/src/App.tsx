@@ -126,7 +126,7 @@ function MobileHeader({ onMenu }: { onMenu: () => void }) {
   const [location] = useLocation();
   const current = NAV_ITEMS.find(n => isActive(location, n.href));
   return (
-    <header className="md:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14 bg-background/85 backdrop-blur border-b border-border">
+    <header className="md:hidden sticky top-0 z-30 safe-area-top flex items-center gap-3 px-4 h-14 bg-background/85 backdrop-blur border-b border-border">
       <button
         onClick={onMenu}
         aria-label="Open menu"
@@ -202,7 +202,7 @@ function AppShell() {
           />
           <aside
             className={cn(
-              'fixed left-0 top-0 bottom-0 z-50 w-[280px] max-w-[85vw] border-r border-border',
+              'fixed left-0 top-0 bottom-0 z-50 w-[260px] max-w-[78vw] border-r border-border bg-background',
               'transition-transform duration-[220ms] ease-out will-change-transform',
               drawerOpen ? 'translate-x-0' : '-translate-x-full',
             )}

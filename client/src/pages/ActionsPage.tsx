@@ -114,10 +114,10 @@ export default function ActionsPage() {
       </header>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-6">
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-3 mb-6">
         <Stat value={String(open.length)} label="Open" tone="primary" />
         <Stat value={String(done.length)} label="Completed" tone="success" />
-        <Stat value={String(allRows.length)} label="Total extracted" tone="muted" />
+        <Stat value={String(allRows.length)} label="Total" tone="muted" />
       </div>
 
       {isLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
@@ -166,11 +166,11 @@ function Stat({ value, label, tone }: { value: string; label: string; tone: 'pri
       ? 'text-[hsl(142_71%_45%)]'
       : 'text-foreground';
   return (
-    <div className="os-panel p-3 sm:p-4">
-      <div className={cn('font-display text-xl sm:text-2xl font-semibold tabular-nums leading-none', toneClass)}>
+    <div className="os-panel p-2.5 sm:p-4">
+      <div className={cn('font-display text-lg sm:text-2xl font-semibold tabular-nums leading-none', toneClass)}>
         {value}
       </div>
-      <div className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">{label}</div>
+      <div className="text-[9px] sm:text-[10px] text-muted-foreground mt-1 uppercase tracking-wider truncate">{label}</div>
     </div>
   );
 }
@@ -198,21 +198,21 @@ function ActionRow({ row, done, onToggle }: { row: Row; done: boolean; onToggle:
           : <Circle className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />}
       </button>
       <div className="flex-1 min-w-0">
-        <div className={cn('text-sm leading-snug', done && 'line-through text-muted-foreground')}>
-          {row.owner && <span className="attendee-chip mr-2">{row.owner}</span>}
-          {row.task}
+        <div className={cn('text-sm leading-snug break-words', done && 'line-through text-muted-foreground')}>
+          {row.owner && <span className="attendee-chip mr-2 align-middle">{row.owner}</span>}
+          <span className="break-words">{row.task}</span>
         </div>
-        <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
-          <Link href={`/meetings/${row.meetingId}`} className="hover:text-primary inline-flex items-center gap-1 truncate">
-            <span className="truncate max-w-[200px]">{row.meetingTitle}</span>
+        <div className="flex items-center gap-1.5 sm:gap-2 mt-1 text-[11px] text-muted-foreground flex-wrap">
+          <Link href={`/meetings/${row.meetingId}`} className="hover:text-primary inline-flex items-center gap-1 min-w-0 max-w-full">
+            <span className="truncate max-w-[140px] sm:max-w-[200px]">{row.meetingTitle}</span>
             <ArrowRight className="w-3 h-3 shrink-0" />
           </Link>
           <span className="text-muted-foreground/40">·</span>
-          <span>{formatDate(row.meetingDate)}</span>
+          <span className="whitespace-nowrap">{formatDate(row.meetingDate)}</span>
           {row.deadline && (
             <>
               <span className="text-muted-foreground/40">·</span>
-              <span className="inline-flex items-center gap-1 text-[hsl(32_95%_60%)]">
+              <span className="inline-flex items-center gap-1 text-[hsl(32_95%_60%)] whitespace-nowrap">
                 <Clock className="w-3 h-3" /> {row.deadline}
               </span>
             </>
@@ -222,11 +222,12 @@ function ActionRow({ row, done, onToggle }: { row: Row; done: boolean; onToggle:
       <button
         onClick={() => sendToLinear.mutate()}
         disabled={sendToLinear.isPending}
-        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/60 border border-border"
+        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/60 border border-border"
         title="Send to Linear"
+        aria-label="Send to Linear"
       >
         <Zap className="w-3 h-3" />
-        {sendToLinear.isPending ? 'Sending…' : 'Linear'}
+        <span className="hidden sm:inline">{sendToLinear.isPending ? 'Sending…' : 'Linear'}</span>
       </button>
     </div>
   );

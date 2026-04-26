@@ -32,7 +32,7 @@ export function FeedStats({ meetings }: { meetings: Meeting[] }) {
   if (stats.count === 0) return null;
 
   return (
-    <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-6">
+    <div className="grid grid-cols-3 gap-1.5 sm:gap-3 mb-6">
       <Stat icon={FileText} label="This week" value={String(stats.count)} sub="meetings" />
       <Stat icon={Clock} label="Captured" value={stats.hours} sub="in the last 7 days" />
       <Stat icon={CheckCircle2} label="Action items" value={String(stats.actions)} sub="extracted" />
@@ -52,13 +52,13 @@ function Stat({
   sub: string;
 }) {
   return (
-    <div className="os-panel p-3 sm:p-4">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
-        <Icon className="w-3 h-3" />
-        <span>{label}</span>
+    <div className="os-panel p-2.5 sm:p-4 min-w-0">
+      <div className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+        <Icon className="w-3 h-3 shrink-0" />
+        <span className="truncate">{label}</span>
       </div>
-      <div className="font-display text-xl sm:text-2xl font-semibold tabular-nums leading-none">{value}</div>
-      <div className="text-[10px] text-muted-foreground mt-1 truncate">{sub}</div>
+      <div className="font-display text-lg sm:text-2xl font-semibold tabular-nums leading-none truncate">{value}</div>
+      <div className="text-[9px] sm:text-[10px] text-muted-foreground mt-1 truncate">{sub}</div>
     </div>
   );
 }

@@ -16,12 +16,12 @@ function Stat({
   sub?: string;
 }) {
   return (
-    <div className="surface-1 p-5">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider mb-3">
-        <Icon className="w-3.5 h-3.5" /> {label}
+    <div className="surface-1 p-3 sm:p-5 min-w-0">
+      <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-2 sm:mb-3">
+        <Icon className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" /> <span className="truncate">{label}</span>
       </div>
-      <div className="font-display text-2xl font-semibold tabular-nums">{value}</div>
-      {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
+      <div className="font-display text-lg sm:text-2xl font-semibold tabular-nums truncate">{value}</div>
+      {sub && <div className="text-[11px] sm:text-xs text-muted-foreground mt-1 truncate">{sub}</div>}
     </div>
   );
 }
@@ -85,7 +85,7 @@ export default function AnalyticsPage() {
         <div className="text-sm text-muted-foreground">Loading…</div>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mb-6">
             <Stat icon={Video} label="Total meetings" value={stats.total} sub={`${stats.thisWeek} this week`} />
             <Stat icon={Clock} label="Total time" value={stats.totalHours} sub="captured & transcribed" />
             <Stat icon={CheckCircle2} label="Action items" value={stats.actionItems} sub="extracted" />

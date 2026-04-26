@@ -553,7 +553,7 @@ export default function SettingsPage() {
       </header>
 
       {/* Two-column layout */}
-      <div className="flex gap-6 items-start">
+      <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch md:items-start">
         {/* Desktop nav rail */}
         <nav className="hidden md:block w-[240px] shrink-0 sticky top-4">
           <SectionNav

@@ -606,7 +606,7 @@ export default function DocsPage() {
   return (
     <div className="md:flex md:h-full">
       {/* Mobile section picker */}
-      <div className="md:hidden sticky top-14 z-10 bg-background/90 backdrop-blur border-b border-border px-4 py-2.5 flex items-center gap-2">
+      <div className="md:hidden sticky z-10 bg-background/90 backdrop-blur border-b border-border px-4 py-2.5 flex items-center gap-2" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 56px)' }}>
         <button
           onClick={() => setMobileOpen(v => !v)}
           className="flex items-center gap-2 text-sm font-medium w-full justify-between px-3 py-2 rounded-md border border-border bg-input/60"
@@ -621,7 +621,7 @@ export default function DocsPage() {
       {mobileOpen && (
         <>
           <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setMobileOpen(false)} />
-          <div className="md:hidden fixed left-0 right-0 top-[116px] z-30 mx-4 surface-1 p-2 max-h-[70vh] overflow-y-auto animate-in fade-in-50 slide-in-from-top-2 duration-150">
+          <div className="md:hidden fixed left-0 right-0 z-30 mx-4 surface-1 p-2 max-h-[70vh] overflow-y-auto animate-in fade-in-50 slide-in-from-top-2 duration-150" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 116px)' }}>
             <ul className="space-y-0.5">
               {SECTIONS.map(s => (
                 <li key={s.id}>

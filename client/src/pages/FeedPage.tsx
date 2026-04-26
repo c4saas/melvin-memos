@@ -59,10 +59,10 @@ function FeedItem({ m }: { m: Meeting }) {
         {/* Header */}
         <header className="flex items-start justify-between gap-3 mb-3">
           <div className="min-w-0 flex-1">
-            <h3 className="font-display font-semibold text-base sm:text-lg leading-snug tracking-tight">
+            <h3 className="font-display font-semibold text-base sm:text-lg leading-snug tracking-tight break-words">
               {m.title}
             </h3>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-1.5 sm:gap-x-2 gap-y-1 mt-1.5 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <CalendarIcon className="w-3 h-3" /> {formatDate(m.startAt)}
               </span>
@@ -247,9 +247,10 @@ export default function FeedPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="primary" onClick={() => setRecorderOpen(true)}>
+          <Button variant="primary" size="sm" onClick={() => setRecorderOpen(true)}>
             <Mic className="w-4 h-4" />
-            <span>Record voice</span>
+            <span className="hidden sm:inline">Record voice</span>
+            <span className="sm:hidden">Record</span>
           </Button>
         </div>
       </header>

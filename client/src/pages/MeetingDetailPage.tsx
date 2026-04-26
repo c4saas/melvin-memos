@@ -87,25 +87,25 @@ export default function MeetingDetailPage() {
             <span>{formatDuration(meeting.durationSeconds)}</span>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0">
           {isLive && (
-            <Button variant="destructive" onClick={() => stopMut.mutate()}>
-              <Square className="w-4 h-4" /> Leave call
+            <Button variant="destructive" size="sm" onClick={() => stopMut.mutate()}>
+              <Square className="w-4 h-4" /> <span className="hidden sm:inline">Leave call</span><span className="sm:hidden">Leave</span>
             </Button>
           )}
           {meeting.recordingPath && meeting.status !== 'summarizing' && (
-            <Button variant="secondary" onClick={() => reprocessMut.mutate()}>
+            <Button variant="secondary" size="sm" onClick={() => reprocessMut.mutate()}>
               <RotateCw className="w-4 h-4" /> Reprocess
             </Button>
           )}
           {meeting.notionPageUrl && (
             <a href={meeting.notionPageUrl} target="_blank" rel="noreferrer">
-              <Button variant="secondary">
-                <ExternalLink className="w-4 h-4" /> Open in Notion
+              <Button variant="secondary" size="sm">
+                <ExternalLink className="w-4 h-4" /> <span className="hidden sm:inline">Open in Notion</span><span className="sm:hidden">Notion</span>
               </Button>
             </a>
           )}
-          <Button variant="ghost" onClick={() => { if (confirm('Delete this meeting?')) deleteMut.mutate(); }}>
+          <Button variant="ghost" size="sm" onClick={() => { if (confirm('Delete this meeting?')) deleteMut.mutate(); }} aria-label="Delete">
             <Trash2 className="w-4 h-4" />
           </Button>
         </div>
@@ -155,9 +155,9 @@ export default function MeetingDetailPage() {
             {meeting.actionItems.map((a, i) => (
               <li key={i} className="flex items-start gap-3 text-sm">
                 <span className="mt-1.5 w-2 h-2 rounded-full bg-[hsl(142_71%_45%)] flex-shrink-0" />
-                <div>
-                  {a.owner && <span className="attendee-chip mr-2">{a.owner}</span>}
-                  <span>{a.task}</span>
+                <div className="min-w-0 flex-1 break-words">
+                  {a.owner && <span className="attendee-chip mr-2 align-middle">{a.owner}</span>}
+                  <span className="break-words">{a.task}</span>
                   {a.deadline && <span className="text-muted-foreground ml-2 text-xs">· {a.deadline}</span>}
                 </div>
               </li>

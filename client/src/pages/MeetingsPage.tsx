@@ -358,13 +358,14 @@ export default function MeetingsPage() {
             <span className="hidden sm:inline">Sync calendars</span>
             <span className="sm:hidden">Sync</span>
           </Button>
-          <Button variant="secondary" onClick={() => setRecorderOpen(true)}>
+          <Button variant="secondary" size="sm" onClick={() => setRecorderOpen(true)} title="Record voice">
             <Mic className="w-4 h-4" />
-            <span>Record</span>
+            <span className="hidden sm:inline">Record</span>
           </Button>
-          <Button variant="primary" onClick={() => setDialogOpen(true)}>
+          <Button variant="primary" size="sm" onClick={() => setDialogOpen(true)} title="Send notetaker">
             <Plus className="w-4 h-4" />
-            <span>Send notetaker</span>
+            <span className="hidden sm:inline">Send notetaker</span>
+            <span className="sm:hidden">Notetaker</span>
           </Button>
         </div>
       </header>

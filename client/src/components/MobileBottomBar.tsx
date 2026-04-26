@@ -26,7 +26,7 @@ export function MobileBottomBar({
       aria-label="Primary"
       className="md:hidden fixed bottom-0 left-0 right-0 z-30 safe-area-bottom bg-background/90 backdrop-blur border-t border-border"
     >
-      <div className="relative flex items-stretch justify-between px-2">
+      <div className="relative flex items-stretch justify-between px-1">
         {items.map(it => {
           const a = isActive(it.href);
           return (
@@ -34,18 +34,18 @@ export function MobileBottomBar({
               key={it.href}
               href={it.href}
               className={cn(
-                'flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] transition-colors',
+                'flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] transition-colors',
                 a ? 'text-primary' : 'text-muted-foreground',
               )}
             >
-              <it.icon className="w-5 h-5" />
-              <span className="text-[10px] font-medium">{it.label}</span>
+              <it.icon className="w-5 h-5 shrink-0" />
+              <span className="text-[10px] font-medium leading-none truncate max-w-full px-1">{it.label}</span>
             </Link>
           );
         })}
 
         {/* Center mic button — elevated */}
-        <div className="flex-1 relative flex items-start justify-center">
+        <div className="flex-1 min-w-0 relative flex items-start justify-center">
           <button
             onClick={onRecord}
             aria-label="Record voice"
@@ -58,7 +58,7 @@ export function MobileBottomBar({
           >
             <Mic className="w-6 h-6 text-primary-foreground" strokeWidth={2.5} />
           </button>
-          <div className="pt-10 pb-2 text-[10px] font-medium text-muted-foreground">Record</div>
+          <div className="pt-10 pb-2 text-[10px] font-medium text-muted-foreground leading-none">Record</div>
         </div>
 
         {trailing.map(it => {
@@ -68,23 +68,23 @@ export function MobileBottomBar({
               key={it.href}
               href={it.href}
               className={cn(
-                'flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] transition-colors',
+                'flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] transition-colors',
                 a ? 'text-primary' : 'text-muted-foreground',
               )}
             >
-              <it.icon className="w-5 h-5" />
-              <span className="text-[10px] font-medium">{it.label}</span>
+              <it.icon className="w-5 h-5 shrink-0" />
+              <span className="text-[10px] font-medium leading-none truncate max-w-full px-1">{it.label}</span>
             </Link>
           );
         })}
 
         <button
           onClick={onOpenMenu}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] text-muted-foreground"
+          className="flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] text-muted-foreground"
           aria-label="Open menu"
         >
-          <Menu className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Menu</span>
+          <Menu className="w-5 h-5 shrink-0" />
+          <span className="text-[10px] font-medium leading-none truncate max-w-full px-1">Menu</span>
         </button>
       </div>
     </nav>

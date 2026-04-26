@@ -68,11 +68,11 @@ export default function CalendarPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Your meetings by date.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
           <Button variant="ghost" size="sm" onClick={prev} aria-label="Previous month">
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <div className="font-display font-semibold text-base min-w-[160px] text-center">{monthLabel}</div>
+          <div className="font-display font-semibold text-sm sm:text-base min-w-[120px] sm:min-w-[160px] text-center">{monthLabel}</div>
           <Button variant="ghost" size="sm" onClick={next} aria-label="Next month">
             <ChevronRight className="w-4 h-4" />
           </Button>
@@ -81,9 +81,12 @@ export default function CalendarPage() {
       </header>
 
       <div className="surface-1 overflow-hidden">
-        <div className="grid grid-cols-7 text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border">
+        <div className="grid grid-cols-7 text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border">
           {DAYS.map(d => (
-            <div key={d} className="px-2 py-2 text-center">{d}</div>
+            <div key={d} className="px-1 sm:px-2 py-1.5 sm:py-2 text-center">
+              <span className="hidden sm:inline">{d}</span>
+              <span className="sm:hidden">{d.slice(0, 1)}</span>
+            </div>
           ))}
         </div>
         <div className="grid grid-cols-7 auto-rows-fr">
@@ -92,11 +95,12 @@ export default function CalendarPage() {
             const events = byDay.get(key) ?? [];
             const inMonth = d.getMonth() === anchor.getMonth();
             const isToday = key === today;
+            const visibleCount = 2; // shown per cell on all sizes; small enough to fit mobile
             return (
               <div
                 key={i}
                 className={cn(
-                  'border-r border-b border-border/50 min-h-[90px] p-1.5 flex flex-col gap-1 transition-colors',
+                  'border-r border-b border-border/50 min-h-[64px] sm:min-h-[90px] p-1 sm:p-1.5 flex flex-col gap-0.5 sm:gap-1 transition-colors overflow-hidden',
                   !inMonth && 'bg-muted/30 text-muted-foreground/60',
                   isToday && 'bg-primary/5',
                 )}
@@ -104,22 +108,22 @@ export default function CalendarPage() {
                 <div className="flex items-center justify-between">
                   <span
                     className={cn(
-                      'text-xs font-medium w-5 h-5 flex items-center justify-center rounded-full',
+                      'text-[10px] sm:text-xs font-medium w-5 h-5 flex items-center justify-center rounded-full',
                       isToday && 'bg-primary text-primary-foreground',
                     )}
                   >
                     {d.getDate()}
                   </span>
-                  {events.length > 3 && (
-                    <span className="text-[10px] text-muted-foreground">+{events.length - 3}</span>
+                  {events.length > visibleCount && (
+                    <span className="text-[9px] sm:text-[10px] text-muted-foreground">+{events.length - visibleCount}</span>
                   )}
                 </div>
                 <div className="flex flex-col gap-0.5 overflow-hidden">
-                  {events.slice(0, 3).map(ev => (
+                  {events.slice(0, visibleCount).map(ev => (
                     <Link
                       key={ev.id}
                       href={`/meetings/${ev.id}`}
-                      className="text-[11px] px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 truncate"
+                      className="text-[9px] sm:text-[11px] px-1 sm:px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 truncate leading-tight"
                       title={`${ev.title} · ${platformLabels[ev.platform] ?? ev.platform}`}
                     >
                       {ev.title}
