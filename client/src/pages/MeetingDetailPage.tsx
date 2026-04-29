@@ -26,10 +26,22 @@ export default function MeetingDetailPage() {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
 
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings });
+
   const stopMut = useMutation({
     mutationFn: () => api.stopMeeting(id),
     onSuccess: () => refetch(),
     onError: (err: unknown) => toast.error(err instanceof Error ? err.message : 'Stop failed'),
+  });
+  const inviteBotMut = useMutation({
+    mutationFn: (enable: boolean) => api.setInviteBot(id, enable),
+    onSuccess: (r) => {
+      refetch();
+      toast.success(r.inviteBotAccount
+        ? 'Bot will be invited on next calendar sync (~1 min)'
+        : 'Bot invite turned off');
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : 'Toggle failed'),
   });
   const reprocessMut = useMutation({
     mutationFn: () => api.reprocess(id),
@@ -118,6 +130,40 @@ export default function MeetingDetailPage() {
           suggestions={tagSuggestions}
         />
       </div>
+
+      {/* Per-meeting "Invite Memos bot" toggle — visible only for scheduled
+          Google Meet events when a bot Workspace email is configured. Flipping
+          it adds the bot email to attendees on the next calendar sync. */}
+      {meeting.platform === 'google_meet'
+        && meeting.status === 'scheduled'
+        && settings?.bot?.assistantEmail && (
+        <div className="os-panel p-4 mb-5 flex items-start sm:items-center justify-between gap-3">
+          <div className="text-sm">
+            <div className="font-medium mb-1">Invite Memos bot to this meeting</div>
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              Adds <span className="font-mono">{settings.bot.assistantEmail}</span> as a guest on this calendar event so the bot joins as a real Workspace participant — not a guest browser. Use this for meetings the bot keeps getting kicked out of.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={meeting.inviteBotAccount}
+            disabled={inviteBotMut.isPending}
+            onClick={() => inviteBotMut.mutate(!meeting.inviteBotAccount)}
+            className={
+              'relative shrink-0 inline-flex h-6 w-11 items-center rounded-full transition-colors '
+              + (meeting.inviteBotAccount ? 'bg-primary' : 'bg-muted')
+            }
+          >
+            <span
+              className={
+                'inline-block h-4 w-4 transform rounded-full bg-white transition-transform '
+                + (meeting.inviteBotAccount ? 'translate-x-6' : 'translate-x-1')
+              }
+            />
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
         <div className="os-panel p-4">
@@ -222,6 +268,27 @@ export default function MeetingDetailPage() {
         <section className="os-panel p-5 sm:p-6 border-destructive/50 bg-destructive/5">
           <h2 className="font-display font-semibold mb-2 text-destructive">Error</h2>
           <p className="text-sm font-mono text-destructive/80">{meeting.errorMessage}</p>
+          {(() => {
+            // Surface a tab-recording fallback CTA when the failure is the kind
+            // a guest browser bot can never solve (Workspace gated, lobby-only).
+            const msg = meeting.errorMessage ?? '';
+            const isBotJoinFailure = /workspace\.google\.com|admitted within|sign into a Google account/i.test(msg);
+            if (!isBotJoinFailure) return null;
+            return (
+              <div className="mt-4 p-4 rounded-md bg-background/40 border border-destructive/30 text-sm">
+                <p className="font-medium mb-1.5">Tip — record yourself with the Chrome extension</p>
+                <p className="text-muted-foreground leading-relaxed">
+                  Workspace meetings often refuse our headless bot. Install the Memos extension,
+                  open the Meet/Zoom/Teams tab, click the icon, and hit <strong>● Start recording</strong> —
+                  it captures the tab audio from <em>your</em> signed-in Chrome and uploads here automatically.
+                  No bot session needed.
+                </p>
+                <a href="/api/extension" className="text-primary hover:underline text-xs mt-2 inline-block">
+                  Get the extension →
+                </a>
+              </div>
+            );
+          })()}
         </section>
       )}
     </div>

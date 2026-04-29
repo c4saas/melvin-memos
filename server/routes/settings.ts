@@ -4,6 +4,7 @@ import { join } from 'path';
 import { getSettings, saveSettings } from '../settings';
 import { provisionMeetingsDatabase } from '../services/notion-sync';
 import { buildDigest, sendDigest } from '../services/digest';
+import { testWebhookById } from '../services/webhooks';
 import { requireAuth, getUserId } from '../auth';
 import { createLogger } from '../logger';
 
@@ -75,6 +76,21 @@ settingsRouter.patch('/', async (req, res) => {
   res.json({ ...redact(next), platform: platformMeta() });
 });
 
+// Lightweight status endpoint the Chrome extension polls on popup open —
+// avoids pulling the full (heavy, redacted) /api/settings payload just to
+// check whether a session is already uploaded.
+settingsRouter.get('/bot-session/google/status', async (_req, res) => {
+  try {
+    if (!existsSync(GOOGLE_SESSION_PATH)) {
+      return res.json({ present: false });
+    }
+    const stat = statSync(GOOGLE_SESSION_PATH);
+    res.json({ present: true, uploadedAt: stat.mtime.toISOString(), ageMs: Date.now() - stat.mtime.getTime() });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 settingsRouter.post('/bot-session/google', async (req, res) => {
   const body = req.body;
   if (!body || typeof body !== 'object' || !Array.isArray(body.cookies)) {
@@ -121,6 +137,17 @@ settingsRouter.post('/digest/send-now', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ sent: false, reason: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+settingsRouter.post('/webhooks/:id/test', async (req, res) => {
+  try {
+    const baseUrl = process.env.APP_BASE_URL ?? `${req.protocol}://${req.get('host')}`;
+    const result = await testWebhookById(req.params.id, baseUrl);
+    if (result.hookNotFound) return res.status(404).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 

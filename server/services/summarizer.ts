@@ -1,5 +1,7 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { getSettings } from '../settings';
 import { createLogger } from '../logger';
+import { recordError } from './error-log';
 
 const log = createLogger('summarizer');
 
@@ -34,17 +36,46 @@ Rules:
 - Action items: every task with a clear owner and deadline if stated.
 - If a section has no content, use a single-element array with "None".`;
 
+interface SummarizerContext {
+  title?: string;
+  date: string;
+  durationSec?: number;
+  meetingId?: string;
+}
+
+type RawSummary = Omit<MeetingSummary, 'fullMarkdown' | 'title' | 'date'> & { title?: string };
+
+/**
+ * Pull a JSON object out of an LLM response. Models sometimes wrap output in
+ * ```json ... ``` fences or prepend "Here's your summary:" — we extract the
+ * first {...} block and try to parse that. Returns null if no parseable JSON
+ * is found.
+ */
+function extractJson(raw: string): RawSummary | null {
+  if (!raw) return null;
+
+  // Strip code fences first.
+  let s = raw.trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
+
+  // Try the cleaned string directly.
+  try { return JSON.parse(s); } catch {}
+
+  // Find the first { ... matching last }, then narrow if that fails.
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first >= 0 && last > first) {
+    const candidate = s.slice(first, last + 1);
+    try { return JSON.parse(candidate); } catch {}
+  }
+  return null;
+}
+
 export async function summarizeTranscript(
   transcript: string,
-  context: { title?: string; date: string; durationSec?: number },
+  context: SummarizerContext,
 ): Promise<MeetingSummary> {
   const settings = await getSettings();
-  const baseUrl = settings.providers.ollama.baseUrl.replace(/\/+$/, '');
-  const model = settings.providers.ollama.summaryModel;
-  const apiKey = settings.providers.ollama.apiKey;
-  const isCloud = /ollama\.com/i.test(baseUrl);
-
-  log.info('summarizing via ollama', { baseUrl, model, isCloud, transcriptChars: transcript.length });
 
   const userMessage = [
     context.title ? `Meeting title: ${context.title}` : '',
@@ -55,8 +86,59 @@ export async function summarizeTranscript(
     transcript,
   ].filter(Boolean).join('\n');
 
+  // Try Ollama first (the default cheap path).
+  try {
+    const parsed = await summarizeWithOllama(userMessage, settings.providers.ollama);
+    return finalize(parsed, context);
+  } catch (err) {
+    const ollamaErr = err instanceof Error ? err.message : String(err);
+    log.warn('ollama summary failed, considering fallback', { err: ollamaErr });
+    await recordError({
+      kind: 'summarizer.ollama',
+      meetingId: context.meetingId,
+      message: ollamaErr,
+      context: { provider: 'ollama', model: settings.providers.ollama.summaryModel },
+    }).catch(() => {});
+
+    // Fall back to Anthropic if a key is configured.
+    const anthropicKey = settings.providers.anthropic.apiKey;
+    if (anthropicKey) {
+      log.info('falling back to anthropic for summary');
+      try {
+        const parsed = await summarizeWithAnthropic(userMessage, anthropicKey);
+        return finalize(parsed, context);
+      } catch (err2) {
+        const anthErr = err2 instanceof Error ? err2.message : String(err2);
+        log.error('anthropic fallback also failed', { err: anthErr });
+        await recordError({
+          kind: 'summarizer.anthropic',
+          meetingId: context.meetingId,
+          message: anthErr,
+          context: { provider: 'anthropic' },
+        }).catch(() => {});
+        throw new Error(`Both Ollama and Anthropic summarization failed. Ollama: ${ollamaErr}. Anthropic: ${anthErr}`);
+      }
+    }
+
+    // No fallback configured — surface a more actionable error.
+    throw new Error(
+      `Summarizer failed: ${ollamaErr}. Add an Anthropic API key in Settings → Providers → Anthropic for automatic fallback.`,
+    );
+  }
+}
+
+async function summarizeWithOllama(
+  userMessage: string,
+  ollama: { baseUrl: string; summaryModel: string; apiKey: string | null },
+): Promise<RawSummary> {
+  const baseUrl = ollama.baseUrl.replace(/\/+$/, '');
+  const model = ollama.summaryModel;
+  const isCloud = /ollama\.com/i.test(baseUrl);
+
+  log.info('summarizing via ollama', { baseUrl, model, isCloud, transcriptChars: userMessage.length });
+
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+  if (ollama.apiKey) headers['Authorization'] = `Bearer ${ollama.apiKey}`;
 
   const res = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
@@ -74,32 +156,77 @@ export async function summarizeTranscript(
   });
 
   if (!res.ok) {
-    throw new Error(`Ollama error ${res.status}: ${await res.text()}`);
+    throw new Error(`Ollama error ${res.status}: ${(await res.text()).slice(0, 300)}`);
   }
 
   const data = await res.json() as { message?: { content?: string } };
   const content = data.message?.content ?? '';
-
-  let parsed: Omit<MeetingSummary, 'fullMarkdown' | 'title' | 'date'> & { title?: string };
-  try {
-    parsed = JSON.parse(content);
-  } catch (e) {
-    log.error('failed to parse summary JSON', { content: content.slice(0, 500) });
-    throw new Error('Ollama returned invalid JSON');
+  const parsed = extractJson(content);
+  if (!parsed) {
+    log.error('ollama returned unparseable content', { contentHead: content.slice(0, 800) });
+    throw new Error(`Ollama returned unparseable content (head: ${content.slice(0, 120)}${content.length > 120 ? '…' : ''})`);
   }
+  return parsed;
+}
 
+async function summarizeWithAnthropic(userMessage: string, apiKey: string): Promise<RawSummary> {
+  const client = new Anthropic({ apiKey });
+  log.info('summarizing via anthropic', { transcriptChars: userMessage.length });
+
+  // tool_use forces structured JSON output — no chance of code fences or prose preamble.
+  const resp = await client.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: 4096,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: userMessage }],
+    tools: [{
+      name: 'submit_summary',
+      description: 'Submit the structured meeting summary.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          title: { type: 'string' },
+          attendees: { type: 'array', items: { type: 'string' } },
+          executiveSummary: { type: 'string' },
+          discussionPoints: { type: 'array', items: { type: 'string' } },
+          decisions: { type: 'array', items: { type: 'string' } },
+          actionItems: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                owner: { type: 'string' },
+                task: { type: 'string' },
+                deadline: { type: 'string' },
+              },
+              required: ['task'],
+            },
+          },
+          nextSteps: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['attendees', 'executiveSummary', 'discussionPoints', 'decisions', 'actionItems', 'nextSteps'],
+      },
+    }],
+    tool_choice: { type: 'tool', name: 'submit_summary' },
+  });
+
+  const toolUse = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+  if (!toolUse) throw new Error('Anthropic returned no tool_use block');
+  return toolUse.input as RawSummary;
+}
+
+function finalize(parsed: RawSummary, context: SummarizerContext): MeetingSummary {
   const summary: MeetingSummary = {
     title: parsed.title ?? context.title ?? 'Untitled Meeting',
     date: context.date,
     attendees: parsed.attendees ?? [],
     executiveSummary: parsed.executiveSummary ?? '',
     discussionPoints: parsed.discussionPoints ?? [],
-    decisions: parsed.decisions ?? ['None'],
+    decisions: parsed.decisions?.length ? parsed.decisions : ['None'],
     actionItems: parsed.actionItems ?? [],
-    nextSteps: parsed.nextSteps ?? ['None'],
+    nextSteps: parsed.nextSteps?.length ? parsed.nextSteps : ['None'],
     fullMarkdown: '',
   };
-
   summary.fullMarkdown = renderMarkdown(summary);
   return summary;
 }

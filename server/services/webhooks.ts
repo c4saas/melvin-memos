@@ -93,67 +93,93 @@ export interface MeetingEventPayload {
   url: string;
 }
 
+export interface DispatchResult {
+  ok: boolean;
+  status?: number;
+  body?: string;
+  error?: string;
+}
+
+type HookConfig = { id: string; name: string; url: string; secret: string | null };
+
+async function dispatchSingle(hook: HookConfig, event: WebhookEvent, body: string): Promise<DispatchResult> {
+  const safety = await isSafeWebhookTarget(hook.url);
+  if (!safety.ok) return { ok: false, error: `SSRF guard: ${safety.reason}` };
+
+  const deliveryId = crypto.randomUUID();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'User-Agent': 'Memos-Webhook/1.0',
+    'X-Memos-Event': event,
+    'X-Memos-Delivery': deliveryId,
+  };
+  if (hook.secret) {
+    const sig = crypto.createHmac('sha256', hook.secret).update(body).digest('hex');
+    headers['X-Memos-Signature'] = `sha256=${sig}`;
+  }
+
+  try {
+    const r = await fetch(hook.url, {
+      method: 'POST',
+      headers,
+      body,
+      signal: AbortSignal.timeout(10_000),
+    });
+    const txt = await r.text().catch(() => '');
+    return { ok: r.ok, status: r.status, body: txt.slice(0, 500) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function fireMeetingEvent(event: WebhookEvent, meeting: MeetingEventPayload): Promise<void> {
   try {
     const settings = await getSettings();
-    const hooks = (settings as any).webhooks?.outbound as Array<{
-      id: string;
-      name: string;
-      url: string;
-      secret: string | null;
-      events: WebhookEvent[];
-      enabled: boolean;
-    }> | undefined;
+    const hooks = (settings as any).webhooks?.outbound as Array<HookConfig & { events: WebhookEvent[]; enabled: boolean }> | undefined;
     if (!hooks?.length) return;
 
-    const body = JSON.stringify({
-      event,
-      timestamp: new Date().toISOString(),
-      meeting,
-    });
+    const body = JSON.stringify({ event, timestamp: new Date().toISOString(), meeting });
 
     for (const hook of hooks) {
       if (!hook.enabled) continue;
       if (!hook.events?.includes(event)) continue;
       if (!hook.url) continue;
 
-      // SSRF guard: don't let a misconfigured webhook hit internal infra.
-      const safety = await isSafeWebhookTarget(hook.url);
-      if (!safety.ok) {
-        log.warn('webhook rejected (ssrf guard)', { hookId: hook.id, name: hook.name, reason: safety.reason });
-        continue;
-      }
-
-      const deliveryId = crypto.randomUUID();
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Memos-Webhook/1.0',
-        'X-Memos-Event': event,
-        'X-Memos-Delivery': deliveryId,
-      };
-      if (hook.secret) {
-        const sig = crypto.createHmac('sha256', hook.secret).update(body).digest('hex');
-        headers['X-Memos-Signature'] = `sha256=${sig}`;
-      }
-
       // Fire and log — don't block the pipeline on a slow/broken webhook.
-      fetch(hook.url, {
-        method: 'POST',
-        headers,
-        body,
-        signal: AbortSignal.timeout(10_000),
-      }).then(async (r) => {
-        if (r.ok) {
-          log.info('webhook delivered', { hookId: hook.id, name: hook.name, event, deliveryId, status: r.status });
+      dispatchSingle(hook, event, body).then((result) => {
+        if (result.ok) {
+          log.info('webhook delivered', { hookId: hook.id, name: hook.name, event, status: result.status });
         } else {
-          const txt = await r.text().catch(() => '');
-          log.warn('webhook non-ok', { hookId: hook.id, name: hook.name, event, status: r.status, body: txt.slice(0, 200) });
+          log.warn('webhook delivery failed', { hookId: hook.id, name: hook.name, event, status: result.status, error: result.error, body: result.body });
         }
       }).catch((err) => {
-        log.warn('webhook delivery failed', { hookId: hook.id, name: hook.name, event, err: err instanceof Error ? err.message : String(err) });
+        log.warn('webhook dispatch error', { hookId: hook.id, err: err instanceof Error ? err.message : String(err) });
       });
     }
   } catch (err) {
     log.error('fireMeetingEvent error', err);
   }
+}
+
+export async function testWebhookById(hookId: string, baseUrl: string): Promise<DispatchResult & { hookNotFound?: boolean }> {
+  const settings = await getSettings();
+  const hooks = (settings as any).webhooks?.outbound as Array<HookConfig & { events: WebhookEvent[]; enabled: boolean }> | undefined;
+  const hook = hooks?.find(h => h.id === hookId);
+  if (!hook) return { ok: false, hookNotFound: true, error: 'Webhook not found — save your changes first.' };
+  if (!hook.url) return { ok: false, error: 'Webhook URL is not set.' };
+
+  const meeting: MeetingEventPayload = {
+    id: 'test-00000000-0000-0000-0000-000000000000',
+    title: 'Test — webhook verification',
+    platform: 'google_meet',
+    startAt: new Date(Date.now() - 3_600_000).toISOString(),
+    durationSeconds: 3600,
+    summary: 'This is a test payload sent from Memos to verify your webhook endpoint is configured correctly.',
+    actionItems: [{ task: 'Verify webhook integration is working' }],
+    tags: ['test'],
+    url: `${baseUrl}/meetings/test`,
+  };
+
+  const body = JSON.stringify({ event: 'meeting.completed', timestamp: new Date().toISOString(), meeting });
+  return dispatchSingle(hook, 'meeting.completed', body);
 }

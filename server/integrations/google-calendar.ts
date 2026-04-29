@@ -11,7 +11,11 @@ const log = createLogger('google-calendar');
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/calendar.events.readonly',
+  // calendar.events (full read+write) — needed for the per-meeting "Invite
+  // Memos bot" toggle to add the bot's Workspace email to event attendees.
+  // Per-meeting toggle is OFF by default, so the elevated scope is unused
+  // until the user explicitly enables auto-invite.
+  'https://www.googleapis.com/auth/calendar.events',
   'openid',
   'email',
   'profile',
@@ -209,4 +213,55 @@ export async function listUpcomingEvents(accountId: string, withinHours = 14 * 2
     windowHours: withinHours,
   });
   return events;
+}
+
+/**
+ * Idempotently add `botEmail` to a calendar event's attendees so the bot can
+ * join as a real signed-in Workspace participant. Skips the patch entirely if
+ * the bot is already invited (avoids spam updates to other attendees).
+ *
+ * Returns 'invited' if a patch was sent, 'already_invited' if the bot was
+ * already on the attendee list, 'event_not_found' if the event was deleted,
+ * or throws for other failures.
+ */
+export async function ensureBotInvited(
+  accountId: string,
+  externalEventId: string,
+  botEmail: string,
+): Promise<'invited' | 'already_invited' | 'event_not_found'> {
+  const auth = await authForAccount(accountId);
+  const cal = google.calendar({ version: 'v3', auth });
+
+  // The event lives on one of the user's calendars; events.get without a
+  // calendarId would fail. Walk the calendar list to find the right one.
+  const calendarList = await cal.calendarList.list({ minAccessRole: 'writer', maxResults: 250 });
+  const writableCalendars = (calendarList.data.items ?? [])
+    .filter(c => c.id && !c.deleted && (c.accessRole === 'owner' || c.accessRole === 'writer'))
+    .map(c => c.id!);
+
+  for (const calendarId of writableCalendars) {
+    try {
+      const ev = await cal.events.get({ calendarId, eventId: externalEventId });
+      const attendees = ev.data.attendees ?? [];
+      if (attendees.some(a => (a.email ?? '').toLowerCase() === botEmail.toLowerCase())) {
+        return 'already_invited';
+      }
+      const nextAttendees = [...attendees, { email: botEmail, responseStatus: 'accepted' }];
+      await cal.events.patch({
+        calendarId,
+        eventId: externalEventId,
+        // Don't notify other attendees about the bot showing up — Google's
+        // 'none' value suppresses email/notification updates.
+        sendUpdates: 'none',
+        requestBody: { attendees: nextAttendees },
+      });
+      log.info('bot invited to event', { accountId, calendarId, externalEventId, botEmail });
+      return 'invited';
+    } catch (err) {
+      const code = (err as { code?: number }).code;
+      if (code === 404) continue; // event not on this calendar; try next
+      throw err;
+    }
+  }
+  return 'event_not_found';
 }

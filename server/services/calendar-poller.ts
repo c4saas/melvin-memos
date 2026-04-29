@@ -1,15 +1,23 @@
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { db } from '../db';
 import { calendarAccounts, meetings } from '../../shared/schema';
-import { listUpcomingEvents } from '../integrations/google-calendar';
+import { listUpcomingEvents, ensureBotInvited } from '../integrations/google-calendar';
 import { listUpcomingMicrosoftEvents } from '../integrations/microsoft-calendar';
 import { launchBotForMeeting, isRunning } from '../bot/notetaker-bot';
+import { recordError } from './error-log';
+import { getSettings } from '../settings';
 import { createLogger } from '../logger';
 
 const log = createLogger('calendar-poller');
 
 export async function syncAllCalendars(): Promise<{ synced: number; eventsWithLinks: number; accounts: number }> {
   const accounts = await db.select().from(calendarAccounts).where(eq(calendarAccounts.status, 'connected'));
+  // Read once: defense-in-depth check before any auto-invite. Both the email
+  // setting AND the per-meeting toggle must be set; either being empty/false
+  // skips the invite.
+  const settings = await getSettings();
+  const assistantEmail = settings.bot.assistantEmail?.trim();
+
   let total = 0;
   let eventsWithLinks = 0;
   for (const acc of accounts) {
@@ -36,6 +44,31 @@ export async function syncAllCalendars(): Promise<{ synced: number; eventsWithLi
             host: ev.host ?? null,
             updatedAt: new Date(),
           }).where(eq(meetings.id, existing[0].id));
+
+          // Auto-invite path: ONLY when the per-meeting toggle is on AND a
+          // global assistant email is configured AND we're on Google.
+          // Both gates are defensive — no surprise invites.
+          if (
+            assistantEmail
+            && existing[0].inviteBotAccount
+            && acc.provider === 'google'
+            && !ev.attendees.some(a => a.email.toLowerCase() === assistantEmail.toLowerCase())
+          ) {
+            try {
+              const result = await ensureBotInvited(acc.id, ev.externalId, assistantEmail);
+              log.info('bot invite result', { meetingId: existing[0].id, externalId: ev.externalId, result });
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              log.warn('failed to invite bot to event', { meetingId: existing[0].id, externalId: ev.externalId, err: errMsg });
+              await recordError({
+                kind: 'calendar.invite-bot',
+                meetingId: existing[0].id,
+                userId: acc.userId,
+                message: errMsg,
+                context: { externalEventId: ev.externalId, botEmail: assistantEmail, accountEmail: acc.accountEmail },
+              }).catch(() => {});
+            }
+          }
         } else {
           await db.insert(meetings).values({
             userId: acc.userId,
@@ -55,7 +88,23 @@ export async function syncAllCalendars(): Promise<{ synced: number; eventsWithLi
         }
       }
     } catch (err) {
-      log.error('sync failed for account', { accountId: acc.id, error: err instanceof Error ? err.message : err });
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.error('sync failed for account', { accountId: acc.id, error: errMsg });
+      // Surface invalid_grant and similar OAuth errors in the in-app Errors panel
+      // so users can see "your Google connection expired — reconnect" without docker exec.
+      await recordError({
+        kind: 'calendar.sync',
+        userId: acc.userId,
+        message: errMsg,
+        context: {
+          provider: acc.provider,
+          accountEmail: acc.accountEmail,
+          accountId: acc.id,
+          hint: errMsg.includes('invalid_grant')
+            ? 'OAuth refresh token revoked — reconnect this calendar in Settings → Calendar accounts.'
+            : undefined,
+        },
+      }).catch(() => {});
     }
   }
   log.info('calendar sync complete', { newMeetings: total, eventsWithLinks, accounts: accounts.length });

@@ -99,6 +99,97 @@ async function checkAuth(endpoint) {
 }
 
 // ---------------------------------------------------------
+// Bot session sync
+// ---------------------------------------------------------
+async function syncBotSession(base, token) {
+  const [googleCookies, youtubeCookies] = await Promise.all([
+    chrome.cookies.getAll({ domain: '.google.com' }),
+    chrome.cookies.getAll({ domain: '.youtube.com' }),
+  ]);
+
+  function mapSameSite(s) {
+    if (s === 'strict') return 'Strict';
+    if (s === 'lax') return 'Lax';
+    return 'None';
+  }
+
+  const cookies = [...googleCookies, ...youtubeCookies].map(c => ({
+    name: c.name,
+    value: c.value,
+    domain: c.domain,
+    path: c.path,
+    expires: c.session ? -1 : (c.expirationDate ?? -1),
+    httpOnly: c.httpOnly,
+    secure: c.secure,
+    sameSite: mapSameSite(c.sameSite),
+  }));
+
+  if (cookies.length === 0) return null;
+
+  const resp = await fetch(`${base}/api/settings/bot-session/google`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ cookies, origins: [] }),
+  });
+
+  return resp.ok ? cookies.length : null;
+}
+
+async function fetchBotSessionStatus(base, token) {
+  try {
+    const resp = await fetch(`${base}/api/settings/bot-session/google/status`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch { return null; }
+}
+
+const SESSION_REFRESH_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Auto-sync on popup open: if no bot session is uploaded, or the uploaded
+ * session is older than SESSION_REFRESH_MS, transparently push fresh
+ * cookies. The user only sees a brief "Refreshing bot session…" line —
+ * no click needed. Failures are silent (the manual button still works).
+ */
+async function maybeAutoSync(base, token) {
+  const status = await fetchBotSessionStatus(base, token);
+  if (!status) return; // server unreachable — bail without nagging
+  state.botSession = status;
+
+  const stale = !status.present || (status.ageMs ?? Infinity) > SESSION_REFRESH_MS;
+  if (!stale) return;
+
+  state.botSyncInFlight = true;
+  render();
+  const count = await syncBotSession(base, token).catch(() => null);
+  state.botSyncInFlight = false;
+  if (count != null) {
+    state.botSession = { present: true, uploadedAt: new Date().toISOString(), ageMs: 0, cookies: count };
+  } else {
+    state.botSession = { ...status, syncFailed: true };
+  }
+  render();
+}
+
+async function onSyncSession() {
+  const btn = document.getElementById('sync-session-btn');
+  if (btn) { btn.textContent = 'Syncing…'; btn.disabled = true; }
+  const base = state.endpoint.replace(/\/+$/, '');
+  const count = await syncBotSession(base, state.auth.token).catch(() => null);
+  if (count != null) {
+    state.botSession = { present: true, uploadedAt: new Date().toISOString(), ageMs: 0, cookies: count };
+  } else {
+    state.botSession = { ...(state.botSession ?? {}), syncFailed: true };
+  }
+  render();
+}
+
+// ---------------------------------------------------------
 // Render
 // ---------------------------------------------------------
 const state = {
@@ -113,6 +204,8 @@ const state = {
   lastSuccess: null,
   lastUploadError: null,
   elapsed: 0,
+  botSession: null,         // { present, uploadedAt, ageMs, cookies?, syncFailed? } | null
+  botSyncInFlight: false,
 };
 
 let tickerHandle = null;
@@ -126,6 +219,58 @@ function BrandMark() {
     <path d="M6 11c0 3.3 2.7 6 6 6s6-2.7 6-6" stroke="url(#pg)" stroke-width="1.75" stroke-linecap="round" fill="none"/>
     <path d="M12 17v3" stroke="url(#pg)" stroke-width="1.75" stroke-linecap="round"/>
   ` }));
+}
+
+function relTime(iso) {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60_000) return 'just now';
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ago`;
+  if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h ago`;
+  return `${Math.round(ms / 86_400_000)}d ago`;
+}
+
+function renderBotSessionRow() {
+  const s = state.botSession;
+  let dot = '#fbbf24';   // amber default
+  let label = 'Bot session: checking…';
+  let sub = null;
+
+  if (state.botSyncInFlight) {
+    label = 'Refreshing bot session…';
+    sub = 'Reading your Google cookies and uploading to Memos.';
+  } else if (!s) {
+    label = 'Bot session: unknown';
+    sub = 'Server unreachable. Click Refresh to retry.';
+    dot = '#ef4444';
+  } else if (s.syncFailed) {
+    label = 'Bot session: sync failed';
+    sub = 'Are you signed into Google in this Chrome profile? Click Refresh to retry.';
+    dot = '#ef4444';
+  } else if (s.present) {
+    label = `Bot session: active`;
+    sub = `Last refreshed ${relTime(s.uploadedAt)}${s.cookies ? ` · ${s.cookies} cookies` : ''}.`;
+    dot = '#22c55e';
+  } else {
+    label = 'Bot session: missing';
+    sub = 'Click Refresh — the bot will use your Google cookies to join Workspace meetings.';
+    dot = '#ef4444';
+  }
+
+  return h('div', { class: 'bot-session-row' },
+    h('div', { class: 'bot-session-status' },
+      h('span', { class: 'bot-dot', style: `background:${dot}` }),
+      h('span', null, label),
+      h('button', {
+        class: 'bot-refresh-btn',
+        id: 'sync-session-btn',
+        title: 'Refresh bot session now',
+        disabled: state.botSyncInFlight ? 'disabled' : false,
+        onclick: onSyncSession,
+      }, '↻'),
+    ),
+    sub ? h('div', { class: 'bot-session-sub' }, sub) : null,
+  );
 }
 
 function renderIdle() {
@@ -183,6 +328,8 @@ function renderIdle() {
         onclick: onStart,
       }, '● Start recording'),
     ),
+
+    state.auth.ok ? renderBotSessionRow() : null,
 
     state.error ? h('div', { class: 'error' }, state.error) : null,
     state.lastUploadError ? h('div', { class: 'error' },
@@ -323,4 +470,10 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 
   render();
+
+  // After the initial render, transparently refresh the bot session if it's
+  // missing or stale (>24h). Failures are silent — manual button stays.
+  if (state.auth.ok) {
+    maybeAutoSync(state.endpoint.replace(/\/+$/, ''), state.auth.token).catch(() => {});
+  }
 })();

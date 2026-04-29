@@ -104,8 +104,21 @@ CREATE TABLE IF NOT EXISTS api_keys (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Backfills for columns added after v0.1.0
+-- Backfills for columns added in later schema migrations
 ALTER TABLE meetings ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE meetings ADD COLUMN IF NOT EXISTS invite_bot_account BOOLEAN NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS error_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind TEXT NOT NULL,
+  meeting_id UUID,
+  user_id UUID,
+  message TEXT NOT NULL,
+  context JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS error_event_created_idx ON error_events (created_at);
+CREATE INDEX IF NOT EXISTS error_event_kind_idx ON error_events (kind, created_at);
 
 CREATE TABLE IF NOT EXISTS highlights (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

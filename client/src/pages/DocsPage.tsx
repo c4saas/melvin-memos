@@ -121,7 +121,7 @@ const SECTIONS: Section[] = [
             <UL>
               <li>App name, support email, developer email</li>
               <li>Authorized domain: your instance domain (e.g. <Code>memos.c4saas.com</Code>)</li>
-              <li>Scopes: <Code>calendar.readonly</Code>, <Code>calendar.events.readonly</Code></li>
+              <li>Scopes: <Code>calendar.readonly</Code>, <Code>calendar.events</Code> (the read-write scope is required so the optional per-meeting "Invite Memos bot" toggle can add the bot's Workspace email to event attendees)</li>
               <li>Add yourself as a test user while the app is in "Testing" mode</li>
             </UL>
           </li>
@@ -132,7 +132,7 @@ const SECTIONS: Section[] = [
             </UL>
           </li>
           <li>Copy the <b>Client ID</b> and <b>Client secret</b> into Memos → Settings → Providers → Google.</li>
-          <li>Go to Settings → Calendar accounts → <b>+ Google</b>, sign in, and grant read-only calendar access.</li>
+          <li>Go to Settings → Calendar accounts → <b>+ Google</b>, sign in, and grant calendar access. Existing users upgrading from a release before v0.1.11 must <b>disconnect and reconnect</b> Google to grant the new <Code>calendar.events</Code> scope — until they do, auto-invite is silently disabled.</li>
         </OL>
 
         <H3>Microsoft 365 (Outlook)</H3>
@@ -282,7 +282,7 @@ const SECTIONS: Section[] = [
           <li>Pin the Memos icon in the toolbar so it's one click away.</li>
         </OL>
 
-        <H3>Usage</H3>
+        <H3>Usage — record from your own browser</H3>
         <OL>
           <li>Open a Meet / Zoom / Teams meeting in Chrome.</li>
           <li>Click the Memos icon. Confirm or edit the title.</li>
@@ -290,6 +290,21 @@ const SECTIONS: Section[] = [
           <li>When the meeting ends, click <b>Stop &amp; upload</b>. A toast confirms the upload.</li>
           <li>The recording appears in <b>My Feed</b> within ~30 seconds with transcript + summary.</li>
         </OL>
+
+        <P>
+          Tab-recording is the most reliable path for Workspace meetings the headless bot can't
+          enter. If a scheduled meeting fails with a redirect or admission error, the meeting
+          page shows a fallback CTA pointing here.
+        </P>
+
+        <H3>Bot session auto-sync</H3>
+        <P>
+          The popup also keeps the headless bot's Google session fresh. The first time you open
+          the popup (and any time the saved session is older than 24 hours), the extension reads
+          your current Google cookies via <Code>chrome.cookies.getAll</Code> and uploads them to
+          your Memos server as Playwright <Code>storageState</Code>. No button to click — the
+          status row at the bottom of the popup shows when the session was last refreshed.
+        </P>
 
         <H3>How it authenticates</H3>
         <P>
@@ -334,64 +349,79 @@ const SECTIONS: Section[] = [
           who hosts the meeting. Getting this right is the #1 cause of "bot can't join" issues.
         </P>
 
-        <H3>Guest join (simplest)</H3>
+        <H3>Guest join (no setup)</H3>
         <P>
-          Works for Google Workspace meetings where the admin has enabled
-          <i> "Allow users to join who aren't signed in with a Google account"</i>.
-          The bot navigates to the Meet URL anonymously, types its name, and clicks <i>Ask to join</i>.
-          Someone already in the meeting admits it.
+          Works for Workspace meetings where the admin has enabled <i>"Allow users to join who aren't signed in
+          with a Google account"</i>. The bot navigates anonymously, types its name, and clicks <i>Ask to join</i>.
+          Someone already in the call admits it. <b>Fails</b> for personal-Gmail-hosted meetings and many
+          Workspace meetings (you'll see <Code>Meet redirected the bot to workspace.google.com</Code>).
         </P>
-        <UL>
-          <li>Requires no Google account for the bot.</li>
-          <li>Works out-of-the-box — no configuration.</li>
-          <li><b>Does not work</b> for meetings created from free personal Gmail accounts — those always require sign-in.</li>
-        </UL>
 
-        <H3>Signed-in bot (required for personal Gmail hosts)</H3>
+        <H3>Signed-in bot via Chrome extension auto-sync (recommended)</H3>
         <P>
-          Create a dedicated Google account for the bot (a free Gmail works, e.g. <Code>yourbot@gmail.com</Code>).
-          Sign into it once in a real browser on your laptop, export the session cookies, and upload them to
-          Memos. From then on, Memos will reuse that session every time the bot joins.
+          The Memos Chrome extension reads the Google cookies of whichever account is signed in to your
+          browser and uploads them to your server as the bot's session. Auto-fires on every popup open if
+          the saved session is missing or older than 24 hours — no button to click.
         </P>
-        <H3>Step-by-step</H3>
         <OL>
-          <li>In a regular Chrome/Edge browser on your laptop, sign into your bot's Google account (<Code>accounts.google.com</Code>). Stay on <Code>google.com</Code> — don't sign out.</li>
-          <li>
-            Install Playwright locally: <Code>npm install -g playwright</Code> and run:
-            <Pre>{`npx playwright codegen \\
-  --save-storage=google.json \\
-  https://accounts.google.com`}</Pre>
-            Sign in through the opened window, accept any prompts, then close it. Playwright writes <Code>google.json</Code> to disk.
-          </li>
-          <li>
-            Upload to Memos (authenticated; uses your Memos session cookie):
-            <Pre>{`curl -X POST https://your-memos-host/api/settings/bot-session/google \\
+          <li>Install the Memos extension (see <a href="#chrome-extension" className="text-primary hover:underline">Chrome extension</a> section).</li>
+          <li>Sign into the Google account you want the bot to use in that Chrome profile. (For a single user, this can just be your own account.)</li>
+          <li>Open the extension popup. The "Bot session" status row turns green. Done.</li>
+        </OL>
+        <P>
+          The session auto-refreshes every time you open the popup (24h+ old triggers a silent re-upload),
+          so cookies stay fresh without you remembering to do anything.
+        </P>
+
+        <H3>Dedicated Workspace bot account + auto-invite (most reliable)</H3>
+        <P>
+          For Workspace meetings the bot still gets kicked out of, run the bot under its own Workspace identity
+          and have Memos add it as a guest on each meeting via the Calendar API. The bot then joins as a real
+          signed-in attendee — no more <Code>workspace.google.com</Code> redirect.
+        </P>
+        <OL>
+          <li>Create a dedicated Workspace user, e.g. <Code>memos-bot@yourdomain.com</Code> (one paid seat).</li>
+          <li>In a separate Chrome profile signed into <Code>memos-bot@yourdomain.com</Code>, install the Memos extension and open the popup once. Auto-sync uploads the bot's cookies as the session.</li>
+          <li>In Memos, go to <b>Settings → Recording &amp; bot</b> and put <Code>memos-bot@yourdomain.com</Code> in the <i>Bot Workspace email (auto-invite)</i> field.</li>
+          <li>If you upgraded from a release before v0.1.11, <b>disconnect and reconnect</b> Google in <i>Settings → Calendar accounts</i> so Memos gets the new <Code>calendar.events</Code> scope.</li>
+          <li>For each meeting the bot has trouble with, open the meeting page and flip <i>Invite Memos bot to this meeting</i>. On the next calendar sync (~1 minute), Memos patches the event to add the bot — using <Code>sendUpdates: 'none'</Code> so other attendees don't get email churn.</li>
+        </OL>
+        <P>
+          Auto-invite is two-step opt-in: <b>nothing</b> happens until both an email is configured AND the
+          per-meeting toggle is flipped. There's no "auto-invite everywhere" mode by design.
+        </P>
+
+        <H3>Manual session upload (fallback)</H3>
+        <P>
+          If you can't or don't want to use the extension, generate <Code>google.json</Code> with Playwright and
+          upload it manually:
+        </P>
+        <Pre>{`npx playwright codegen --save-storage=google.json https://accounts.google.com
+# sign in through the opened window, then:
+curl -X POST https://your-memos-host/api/settings/bot-session/google \\
   -H 'Content-Type: application/json' \\
   --cookie 'memos.sid=YOUR_SESSION_COOKIE' \\
   --data @google.json`}</Pre>
-          </li>
-          <li>That's it. Next join attempt will use the session. Memos stores it at <Code>/data/bot-session/google.json</Code> on the volume — persists across restarts.</li>
-        </OL>
-
-        <H3>Inviting the bot</H3>
-        <P>
-          When using a signed-in bot, <b>invite the bot's Gmail address to the meeting</b> (add it as a guest on
-          the calendar event, or paste the Meet URL into <b>+ New notetaker</b>). For personal-host meetings the
-          bot still needs to be admitted, but it'll appear on the "knocking" screen instead of being redirected away.
-        </P>
 
         <H3>Removing / rotating the session</H3>
         <Pre>{`curl -X DELETE https://your-memos-host/api/settings/bot-session/google \\
   --cookie 'memos.sid=YOUR_SESSION_COOKIE'`}</Pre>
         <P>
           Google sessions typically last many months but can be invalidated if Google detects suspicious activity
-          (like a Linux server login from an unusual IP). If joins suddenly start failing with a "requires-signin"
-          error, re-run the codegen step to refresh the cookies.
+          (e.g. a Linux server login from an unusual IP). If joins suddenly start failing with a sign-in error,
+          open the extension popup once — the auto-sync will re-upload fresh cookies.
+        </P>
+
+        <H3>Tab-recording fallback (when no path works)</H3>
+        <P>
+          For meetings the headless bot can't get into no matter what (locked-down Workspace policies,
+          lobby-only events, etc.), use the extension to record the tab from your own Chrome — see the
+          Chrome extension page. The failed-meeting page also surfaces this CTA inline.
         </P>
 
         <Note>
-          The bot session is <b>not OAuth</b> — it's a browser cookie jar. No Google API scopes are involved.
-          This is the same pattern Recall.ai, Fireflies, and others use for Meet bots.
+          The bot session is <b>not OAuth</b> — it's a browser cookie jar. The auto-invite feature, in
+          contrast, IS OAuth (Google Calendar API). The two paths are independent.
         </Note>
       </>
     ),

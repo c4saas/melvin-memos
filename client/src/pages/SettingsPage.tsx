@@ -4,6 +4,7 @@ import {
   Plug, Unplug, RefreshCw, Check, Bot, Upload, Trash2,
   Chrome as ChromeIcon, Download, Cpu, Mic as MicIcon, FileText,
   Calendar as CalendarIcon, Building2, Send, Brain, Cog, Zap, Shield, Menu, X,
+  AlertTriangle,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { Button } from '../components/Button';
@@ -12,7 +13,7 @@ import { cn } from '../lib/utils';
 
 type SectionId =
   | 'calendar' | 'recording' | 'ai' | 'transcription' | 'integrations'
-  | 'email' | 'apps' | 'developer' | 'data' | 'account';
+  | 'email' | 'apps' | 'developer' | 'data' | 'account' | 'errors';
 
 const SECTIONS: Array<{
   id: SectionId;
@@ -29,6 +30,7 @@ const SECTIONS: Array<{
   { id: 'developer',     label: 'API & webhooks',    group: 'Connections',  icon: Building2 },
   { id: 'apps',          label: 'Apps & extensions', group: 'Platform',     icon: ChromeIcon },
   { id: 'data',          label: 'Data & export',     group: 'Platform',     icon: Shield },
+  { id: 'errors',        label: 'Error log',         group: 'Platform',     icon: AlertTriangle },
   { id: 'account',       label: 'Account',           group: 'Platform',     icon: Cog },
 ];
 
@@ -199,6 +201,7 @@ function WebhooksSection({
   toast: ReturnType<typeof useToast>;
 }) {
   const hooks: Array<any> = form.webhooks?.outbound ?? [];
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; status?: number; body?: string; error?: string } | 'pending'>>({});
 
   const addHook = () => {
     const next = [
@@ -291,6 +294,34 @@ function WebhooksSection({
             <div className="text-[11px] text-muted-foreground">
               Events: <code className="font-mono">meeting.completed</code>, <code className="font-mono">meeting.failed</code>
             </div>
+
+            <div className="flex items-center gap-2 pt-0.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!hook.url || testResults[hook.id] === 'pending'}
+                onClick={async () => {
+                  setTestResults(r => ({ ...r, [hook.id]: 'pending' }));
+                  try {
+                    const result = await api.testWebhook(hook.id);
+                    setTestResults(r => ({ ...r, [hook.id]: result }));
+                  } catch (err: any) {
+                    setTestResults(r => ({ ...r, [hook.id]: { ok: false, error: err?.message ?? 'Request failed' } }));
+                  }
+                }}
+              >
+                <Send className="w-3 h-3" />
+                {testResults[hook.id] === 'pending' ? 'Sending…' : 'Send test payload'}
+              </Button>
+              {testResults[hook.id] && testResults[hook.id] !== 'pending' && (() => {
+                const r = testResults[hook.id] as { ok: boolean; status?: number; error?: string };
+                return (
+                  <span className={`text-[11px] font-mono ${r.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {r.ok ? `✓ ${r.status} OK` : `✗ ${r.status ? `${r.status} ` : ''}${r.error ?? 'failed'}`}
+                  </span>
+                );
+              })()}
+            </div>
           </div>
         ))}
       </div>
@@ -340,6 +371,79 @@ function ExportSection() {
           Download ZIP{count > 0 ? ` · ${count} meeting${count === 1 ? '' : 's'}` : ''}
         </Button>
       </a>
+    </section>
+  );
+}
+
+function ErrorLogSection() {
+  const qc = useQueryClient();
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['errors'],
+    queryFn: () => api.listErrors(),
+    refetchInterval: 15_000,
+  });
+  const errors = data?.errors ?? [];
+
+  const fmtTime = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      });
+    } catch { return iso; }
+  };
+
+  const kindLabel = (k: string) => {
+    if (k === 'bot.join') return 'Bot join';
+    if (k.startsWith('summarizer.')) return `Summary (${k.split('.')[1]})`;
+    if (k === 'pipeline') return 'Pipeline';
+    return k;
+  };
+
+  return (
+    <section className="os-panel p-6 mb-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-display font-semibold flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4" /> Error log
+        </h2>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => { refetch(); qc.invalidateQueries({ queryKey: ['errors'] }); }}
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </Button>
+      </div>
+      <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
+        Recent server-side failures — bot join attempts, summarizer errors, pipeline crashes. Newest first; auto-refreshes every 15 seconds.
+      </p>
+      {isLoading ? (
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      ) : errors.length === 0 ? (
+        <div className="text-sm text-muted-foreground">No errors recorded — quiet skies.</div>
+      ) : (
+        <ul className="space-y-2">
+          {errors.map((e: any) => (
+            <li key={e.id} className="border border-border rounded-md p-3 text-sm">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <span className="font-medium">{kindLabel(e.kind)}</span>
+                <span className="text-xs text-muted-foreground">{fmtTime(e.createdAt)}</span>
+              </div>
+              <div className="text-xs text-muted-foreground break-words mb-1">{e.message}</div>
+              {e.meetingId && (
+                <a className="text-xs text-primary hover:underline" href={`/meetings/${e.meetingId}`}>
+                  View meeting →
+                </a>
+              )}
+              {e.context && Object.keys(e.context).length > 0 && (
+                <details className="mt-1.5">
+                  <summary className="text-xs text-muted-foreground cursor-pointer">context</summary>
+                  <pre className="text-[11px] text-muted-foreground mt-1 whitespace-pre-wrap">{JSON.stringify(e.context, null, 2)}</pre>
+                </details>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -402,16 +506,25 @@ function BotSessionSection({ settings, toast, qc }: { settings: any; toast: Retu
           <>
             Signed-in bot session is active — uploaded{' '}
             {session.uploadedAt ? new Date(session.uploadedAt).toLocaleString() : 'recently'}. The bot will
-            use this session to join Meet rooms that require participants to be signed in.
+            use this session to join Meet rooms that require participants to be signed in.{' '}
+            The Memos Chrome extension auto-refreshes this every time you open the popup; no manual action needed.
           </>
         ) : (
           <>
-            No signed-in session. The bot joins as a guest, which only works for Google Workspace meetings
-            where guests are allowed. Personal-Gmail-hosted meetings will reject the bot. To fix, sign a
-            dedicated Google account into Playwright and upload the <code className="font-mono text-[11px]">storageState</code> JSON below.
-            See <a href="/docs" className="text-primary hover:underline">Docs → Bot sign-in</a> for the full walkthrough.
+            No signed-in session — the bot joins as a guest, which only works for Workspace meetings where
+            guests are allowed. Personal-Gmail-hosted meetings will reject the bot.{' '}
+            <strong>Easiest fix:</strong> install the Memos Chrome extension and just open the popup once —
+            it auto-uploads your Google cookies on first open. No clicks needed.
+            Or upload a session JSON file manually below.
           </>
         )}
+      </div>
+
+      <div className="text-xs text-muted-foreground mb-3 p-3 rounded-md bg-background/40 border border-border">
+        <strong>Fallback:</strong> if the bot still can't get into a meeting (e.g. lobby-only events,
+        unusual Workspace policies), open the meeting tab in your own Chrome and use the extension's{' '}
+        <em>● Start recording</em> button. It captures the tab audio from <em>your</em> session and uploads
+        the same way. No bot session involved.
       </div>
 
       <div className="flex gap-2">
@@ -606,6 +719,17 @@ export default function SettingsPage() {
                 </p>
                 <Field label="Default bot name"><Input value={form.bot?.defaultName ?? ''} onChange={e => set(['bot', 'defaultName'], e.target.value)} /></Field>
                 <Field label="Max meeting duration (minutes)"><Input type="number" value={form.bot?.maxDurationMinutes ?? 180} onChange={e => set(['bot', 'maxDurationMinutes'], Number(e.target.value))} /></Field>
+                <Field
+                  label="Bot Workspace email (auto-invite)"
+                  hint="Optional. The email of a dedicated Workspace account you've set up for the bot (e.g. memos-bot@yourdomain.com). When set, you can flip 'Invite Memos bot' on individual meetings — the calendar poller will add this email as an attendee, so the bot joins as a real signed-in participant. Leave empty to disable auto-invite entirely."
+                >
+                  <Input
+                    type="email"
+                    placeholder="memos-bot@yourdomain.com"
+                    value={form.bot?.assistantEmail ?? ''}
+                    onChange={e => set(['bot', 'assistantEmail'], e.target.value || null)}
+                  />
+                </Field>
                 <Button variant="primary" size="sm" onClick={save('bot')}><Check className="w-3.5 h-3.5" /> Save</Button>
               </section>
               <BotSessionSection settings={settings} toast={toast} qc={qc} />
@@ -749,6 +873,10 @@ export default function SettingsPage() {
 
           {active === 'data' && (
             <ExportSection />
+          )}
+
+          {active === 'errors' && (
+            <ErrorLogSection />
           )}
 
           {active === 'account' && (

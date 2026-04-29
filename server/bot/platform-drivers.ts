@@ -183,13 +183,24 @@ export const googleMeetDriver: PlatformDriver = {
     }
     onStatus('waiting_admission');
 
-    const admitted = await page.waitForSelector('button[aria-label*="Leave call" i], button[aria-label*="leave call" i]', {
-      timeout: 120_000,
-    }).catch(() => null);
+    // Wait up to 4 minutes for the host to admit. Bumped from 2 min after
+    // observing real meetings where the host joined late and admission was
+    // missed. Also re-checks for redirects in case Meet bounces us mid-wait.
+    const ADMIT_TIMEOUT_MS = 4 * 60_000;
+    const admitted = await page.waitForSelector(
+      'button[aria-label*="Leave call" i], button[aria-label*="leave call" i]',
+      { timeout: ADMIT_TIMEOUT_MS },
+    ).catch(() => null);
 
     if (!admitted) {
+      await checkRedirect();
       await dumpDebug(page, 'google_meet', 'not-admitted');
-      throw new Error('Not admitted within 2 minutes');
+      throw new Error(
+        `Not admitted within ${Math.round(ADMIT_TIMEOUT_MS / 60_000)} minutes. ` +
+        `The host needs to admit "${botName}" from the lobby. ` +
+        `Either change the bot's display name to something the host recognizes (Settings → Recording & bot), ` +
+        `or sign the bot into a Google account that's invited to the meeting.`,
+      );
     }
     onStatus('in_call');
   },

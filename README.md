@@ -14,8 +14,21 @@ Fireflies/Recall.ai-style workflow, self-hostable, fully whitelabelable.
 - **Sends the notetaker** to any meeting URL on demand via UI or API.
 - **Records** audio in-container (Chromium + PulseAudio + ffmpeg).
 - **Transcribes** with Groq Whisper.
-- **Summarizes** with a local Ollama model (default `llama3.1:8b`).
+- **Summarizes** with a local Ollama model (default `llama3.1:8b`), with an
+  Anthropic Claude Haiku fallback (via `tool_use`) when the local model returns
+  malformed JSON.
 - **Syncs to Notion** — creates a page in a meetings database.
+- **Chrome extension** — pinned popup auto-syncs your Google cookies as the
+  bot's Playwright session every time you open it (no click required), and
+  doubles as a tab-recorder for meetings the headless bot can't enter.
+- **Auto-invite a Workspace bot account** — opt-in per-meeting toggle that
+  patches the calendar event via the Google Calendar API (`sendUpdates: 'none'`
+  so other attendees aren't spammed) so the bot joins as a real signed-in
+  Workspace user instead of a guest browser. Two-step opt-in: nothing happens
+  unless you set a bot email AND flip the per-meeting switch.
+- **Error log** — `Settings → Error log` surfaces server-side failures (bot
+  join, summarizer, calendar sync, pipeline) with auto-refresh so users don't
+  need shell access to debug.
 - **Whitelabel** — brand name, colors, logo, tagline, all driven by env vars.
 - **Integration API** — `/api/v1/*` for MelvinOS or any upstream to drive it.
 

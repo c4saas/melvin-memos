@@ -17,6 +17,7 @@ import { searchRouter } from './routes/search';
 import { linearRouter } from './routes/linear';
 import { exportRouter } from './routes/export';
 import { apiKeysRouter } from './routes/api-keys';
+import { errorsRouter } from './routes/errors';
 import { ensureDefaultUser } from './auth';
 import { startScheduler } from './scheduler';
 import { createLogger } from './logger';
@@ -105,6 +106,7 @@ async function main() {
   app.use('/api/linear', linearRouter);
   app.use('/api/export', exportRouter);
   app.use('/api/api-keys', apiKeysRouter);
+  app.use('/api/errors', errorsRouter);
   app.use('/api/calendar', calendarRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/v1', integrationApiRouter);

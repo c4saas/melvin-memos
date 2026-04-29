@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Memos by MelvinOS — Meeting Recorder",
   "short_name": "Memos Recorder",
-  "version": "0.1.5",
+  "version": "0.1.12",
   "description": "One-click recording of Google Meet, Zoom, and Teams meetings. Captures tab audio + your mic, transcribes, and summarizes.",
   "action": {
     "default_title": "Record this meeting with Memos",
@@ -40,7 +40,9 @@
     "https://teams.microsoft.com/*",
     "https://teams.live.com/*",
     "https://memos.c4saas.com/*",
-    "https://*.melvinos.com/*"
+    "https://*.melvinos.com/*",
+    "https://*.google.com/*",
+    "https://*.youtube.com/*"
   ],
   "options_page": "popup/options.html",
   "content_security_policy": {

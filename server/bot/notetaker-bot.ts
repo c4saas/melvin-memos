@@ -9,6 +9,7 @@ import { driverFor } from './platform-drivers';
 import { createLogger } from '../logger';
 import { getSettings } from '../settings';
 import { processRecording } from '../services/pipeline';
+import { recordError } from '../services/error-log';
 
 const log = createLogger('notetaker-bot');
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR ?? '/data/recordings';
@@ -146,12 +147,24 @@ export async function launchBotForMeeting(meetingId: string): Promise<{ botId: s
     return { botId: bot.id };
   } catch (err) {
     log.error('bot launch failed', err);
-    await appendStatus(bot.id, 'error', err instanceof Error ? err.message : String(err));
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await appendStatus(bot.id, 'error', errMsg);
     await db.update(meetings).set({
       status: 'failed',
-      errorMessage: err instanceof Error ? err.message : String(err),
+      errorMessage: errMsg,
       updatedAt: new Date(),
     }).where(eq(meetings.id, meetingId));
+    await recordError({
+      kind: 'bot.join',
+      meetingId,
+      userId: meeting.userId,
+      message: errMsg,
+      context: {
+        platform: driver.platform,
+        meetingUrl: meeting.meetingUrl,
+        sessionPresent: Boolean(sessionPathFor(driver.platform)),
+      },
+    }).catch(() => {});
     await audio.stop().catch(() => {});
     await browser?.close().catch(() => {});
     throw err;

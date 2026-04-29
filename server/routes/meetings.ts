@@ -214,6 +214,20 @@ meetingsRouter.patch('/:id/tags', async (req, res) => {
   res.json({ ok: true, tags: row.tags });
 });
 
+meetingsRouter.patch('/:id/invite-bot', async (req, res) => {
+  const userId = getUserId(req);
+  const enable = Boolean(req.body?.enable);
+  const [row] = await db.update(meetings)
+    .set({ inviteBotAccount: enable, updatedAt: new Date() })
+    .where(and(eq(meetings.id, req.params.id), eq(meetings.userId, userId)))
+    .returning();
+  if (!row) return res.status(404).json({ error: 'not found' });
+  // Note: the actual Google Calendar patch happens on the next calendar-poller
+  // sync (within a minute or two). We don't fire it inline so the UI toggle
+  // stays snappy and the calendar API failure mode is centralized.
+  res.json({ ok: true, inviteBotAccount: row.inviteBotAccount });
+});
+
 meetingsRouter.delete('/:id', async (req, res) => {
   const userId = getUserId(req);
   const rows = await db.delete(meetings)

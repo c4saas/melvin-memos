@@ -11,7 +11,7 @@ export const integrationApiRouter = Router();
 integrationApiRouter.use(requireAuth);
 
 integrationApiRouter.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'melvin-memos', version: process.env.APP_VERSION ?? '0.1.0' });
+  res.json({ ok: true, service: 'melvin-memos', version: process.env.APP_VERSION ?? 'dev' });
 });
 
 const botsBody = z.object({

@@ -8,6 +8,7 @@ export type Meeting = {
   host: string | null;
   attendees: Array<{ email: string; name?: string }>;
   autoJoin: boolean;
+  inviteBotAccount: boolean;
   status: string;
   summary: string | null;
   transcript: string | null;
@@ -94,6 +95,8 @@ export const api = {
   reprocess: (id: string) => request<{ ok: boolean }>(`/api/meetings/${id}/reprocess`, { method: 'POST' }),
   updateTags: (id: string, tags: string[]) =>
     request<{ ok: boolean; tags: string[] }>(`/api/meetings/${id}/tags`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
+  setInviteBot: (id: string, enable: boolean) =>
+    request<{ ok: boolean; inviteBotAccount: boolean }>(`/api/meetings/${id}/invite-bot`, { method: 'PATCH', body: JSON.stringify({ enable }) }),
 
   listHighlights: (meetingId: string) =>
     request<Highlight[]>(`/api/highlights/meeting/${meetingId}`),
@@ -135,6 +138,16 @@ export const api = {
     request<{ issueId: string; identifier: string; url: string }>('/api/linear/issue', { method: 'POST', body: JSON.stringify(body) }),
 
   exportCount: () => request<{ count: number }>('/api/export/count'),
+
+  listErrors: (kind?: string, limit = 50) => {
+    const params = new URLSearchParams();
+    if (kind) params.set('kind', kind);
+    params.set('limit', String(limit));
+    return request<{ errors: Array<{ id: string; kind: string; meetingId: string | null; message: string; context: Record<string, unknown>; createdAt: string }> }>(`/api/errors?${params.toString()}`);
+  },
+
+  testWebhook: (id: string) =>
+    request<{ ok: boolean; status?: number; body?: string; error?: string; hookNotFound?: boolean }>(`/api/settings/webhooks/${id}/test`, { method: 'POST' }),
 
   // API keys
   listApiKeys: () => request<Array<{ id: string; name: string; prefix: string; lastUsedAt: string | null; createdAt: string }>>('/api/api-keys'),

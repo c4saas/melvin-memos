@@ -6,6 +6,7 @@ import { summarizeTranscript } from './summarizer';
 import { createMeetingPage } from './notion-sync';
 import { indexMeeting } from './embeddings';
 import { fireMeetingEvent } from './webhooks';
+import { recordError } from './error-log';
 import { createLogger } from '../logger';
 
 const log = createLogger('pipeline');
@@ -44,6 +45,7 @@ export async function processRecording(meetingId: string): Promise<void> {
       title: meeting.title,
       date: dateStr,
       durationSec: transcript.durationSec,
+      meetingId,
     });
 
     await db.update(meetings).set({
@@ -95,11 +97,19 @@ export async function processRecording(meetingId: string): Promise<void> {
     log.info('pipeline complete', { meetingId });
   } catch (err) {
     log.error('pipeline error', err);
+    const errMsg = err instanceof Error ? err.message : String(err);
     await db.update(meetings).set({
       status: 'failed',
-      errorMessage: err instanceof Error ? err.message : String(err),
+      errorMessage: errMsg,
       updatedAt: new Date(),
     }).where(eq(meetings.id, meetingId));
+    await recordError({
+      kind: 'pipeline',
+      meetingId,
+      userId: meeting.userId,
+      message: errMsg,
+      context: { stage: meeting.status, recordingPath: meeting.recordingPath },
+    }).catch(() => {});
 
     // Notify listeners that a meeting failed so they can surface it.
     const [m] = await db.select().from(meetings).where(eq(meetings.id, meetingId)).limit(1);
