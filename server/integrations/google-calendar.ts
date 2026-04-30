@@ -1,6 +1,6 @@
-import { google } from 'googleapis';
+import { google, calendar_v3 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { calendarAccounts } from '../../shared/schema';
 import { getSettings } from '../settings';
@@ -11,16 +11,33 @@ const log = createLogger('google-calendar');
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/calendar.events.readonly',
+  // calendar.events (full read+write) — needed for the per-meeting "Invite
+  // Memos bot" toggle to add the bot's Workspace email to event attendees.
+  // Per-meeting toggle is OFF by default, so the elevated scope is unused
+  // until the user explicitly enables auto-invite.
+  'https://www.googleapis.com/auth/calendar.events',
   'openid',
   'email',
   'profile',
 ];
 
 async function getOAuthClient(redirectUri: string): Promise<OAuth2Client> {
-  const s = await getSettings();
-  const clientId = s.integrations.googleOAuth.clientId ?? process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = s.integrations.googleOAuth.clientSecret ?? process.env.GOOGLE_CLIENT_SECRET;
+  const envId = process.env.GOOGLE_CLIENT_ID;
+  const envSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const platformManaged = Boolean(envId && envSecret);
+
+  let clientId: string | null | undefined;
+  let clientSecret: string | null | undefined;
+
+  if (platformManaged) {
+    clientId = envId;
+    clientSecret = envSecret;
+  } else {
+    const s = await getSettings();
+    clientId = s.integrations.googleOAuth.clientId ?? undefined;
+    clientSecret = s.integrations.googleOAuth.clientSecret ?? undefined;
+  }
+
   if (!clientId || !clientSecret) throw new Error('Google OAuth not configured');
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
@@ -29,7 +46,10 @@ export async function buildAuthUrl(redirectUri: string, state: string): Promise<
   const client = await getOAuthClient(redirectUri);
   return client.generateAuthUrl({
     access_type: 'offline',
-    prompt: 'consent',
+    // 'select_account consent' forces Google to show the account chooser even if
+    // the user is already signed into one — required so users can add a second
+    // Gmail to Memos without being auto-reconnected as the first.
+    prompt: 'select_account consent',
     scope: SCOPES,
     state,
     include_granted_scopes: true,
@@ -46,8 +66,10 @@ export async function exchangeCode(code: string, redirectUri: string, userId: st
   const email = profile.email;
   if (!email) throw new Error('Google did not return an email');
 
+  // Scope by userId — don't collide a different user's account with the same email.
   const existing = await db.select().from(calendarAccounts)
-    .where(eq(calendarAccounts.accountEmail, email)).limit(1);
+    .where(and(eq(calendarAccounts.userId, userId), eq(calendarAccounts.accountEmail, email)))
+    .limit(1);
 
   const values = {
     userId,
@@ -119,21 +141,37 @@ export function extractMeetingUrl(text: string): { url: string; platform: 'googl
   return null;
 }
 
-export async function listUpcomingEvents(accountId: string, withinHours = 24): Promise<CalendarEventSummary[]> {
+export async function listUpcomingEvents(accountId: string, withinHours = 14 * 24): Promise<CalendarEventSummary[]> {
   const auth = await authForAccount(accountId);
   const cal = google.calendar({ version: 'v3', auth });
 
   const now = new Date();
   const timeMax = new Date(Date.now() + withinHours * 3600 * 1000);
 
-  const { data } = await cal.events.list({
-    calendarId: 'primary',
-    timeMin: now.toISOString(),
-    timeMax: timeMax.toISOString(),
-    singleEvents: true,
-    orderBy: 'startTime',
-    maxResults: 50,
-  });
+  const calendarList = await cal.calendarList.list({ minAccessRole: 'reader', maxResults: 250 });
+  const calendarIds = (calendarList.data.items ?? [])
+    .filter(c => c.id && !c.deleted && c.selected !== false)
+    .map(c => c.id!);
+
+  const all: NonNullable<calendar_v3.Schema$Events['items']> = [];
+  for (const calendarId of calendarIds) {
+    try {
+      const resp = await cal.events.list({
+        calendarId,
+        timeMin: now.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: true,
+        orderBy: 'startTime',
+        maxResults: 250,
+      });
+      if (resp.data.items) all.push(...resp.data.items);
+    } catch (err) {
+      log.warn('skipping calendar', { calendarId, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const data = { items: all };
+  const rawCount = data.items?.length ?? 0;
 
   const events: CalendarEventSummary[] = [];
   for (const e of data.items ?? []) {
@@ -162,11 +200,68 @@ export async function listUpcomingEvents(accountId: string, withinHours = 24): P
       end: e.end?.dateTime || e.end?.date ? new Date(e.end!.dateTime ?? e.end!.date!) : undefined,
       meetingUrl: meeting.url,
       platform: meeting.platform,
-      attendees: (e.attendees ?? []).map(a => ({ email: a.email ?? '', name: a.displayName ?? undefined })),
+      attendees: (e.attendees ?? []).map((a: calendar_v3.Schema$EventAttendee) => ({ email: a.email ?? '', name: a.displayName ?? undefined })),
       host: e.organizer?.email ?? undefined,
     });
   }
 
-  log.info('listed events', { accountId, count: events.length });
+  log.info('listed events', {
+    accountId,
+    calendarsScanned: calendarIds.length,
+    rawCount,
+    withVideoLink: events.length,
+    windowHours: withinHours,
+  });
   return events;
+}
+
+/**
+ * Idempotently add `botEmail` to a calendar event's attendees so the bot can
+ * join as a real signed-in Workspace participant. Skips the patch entirely if
+ * the bot is already invited (avoids spam updates to other attendees).
+ *
+ * Returns 'invited' if a patch was sent, 'already_invited' if the bot was
+ * already on the attendee list, 'event_not_found' if the event was deleted,
+ * or throws for other failures.
+ */
+export async function ensureBotInvited(
+  accountId: string,
+  externalEventId: string,
+  botEmail: string,
+): Promise<'invited' | 'already_invited' | 'event_not_found'> {
+  const auth = await authForAccount(accountId);
+  const cal = google.calendar({ version: 'v3', auth });
+
+  // The event lives on one of the user's calendars; events.get without a
+  // calendarId would fail. Walk the calendar list to find the right one.
+  const calendarList = await cal.calendarList.list({ minAccessRole: 'writer', maxResults: 250 });
+  const writableCalendars = (calendarList.data.items ?? [])
+    .filter(c => c.id && !c.deleted && (c.accessRole === 'owner' || c.accessRole === 'writer'))
+    .map(c => c.id!);
+
+  for (const calendarId of writableCalendars) {
+    try {
+      const ev = await cal.events.get({ calendarId, eventId: externalEventId });
+      const attendees = ev.data.attendees ?? [];
+      if (attendees.some(a => (a.email ?? '').toLowerCase() === botEmail.toLowerCase())) {
+        return 'already_invited';
+      }
+      const nextAttendees = [...attendees, { email: botEmail, responseStatus: 'accepted' }];
+      await cal.events.patch({
+        calendarId,
+        eventId: externalEventId,
+        // Don't notify other attendees about the bot showing up — Google's
+        // 'none' value suppresses email/notification updates.
+        sendUpdates: 'none',
+        requestBody: { attendees: nextAttendees },
+      });
+      log.info('bot invited to event', { accountId, calendarId, externalEventId, botEmail });
+      return 'invited';
+    } catch (err) {
+      const code = (err as { code?: number }).code;
+      if (code === 404) continue; // event not on this calendar; try next
+      throw err;
+    }
+  }
+  return 'event_not_found';
 }

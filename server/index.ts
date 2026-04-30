@@ -12,6 +12,12 @@ import { settingsRouter } from './routes/settings';
 import { integrationApiRouter } from './routes/integration-api';
 import { authRouter } from './routes/auth';
 import { brandingRouter } from './routes/branding';
+import { highlightsRouter } from './routes/highlights';
+import { searchRouter } from './routes/search';
+import { linearRouter } from './routes/linear';
+import { exportRouter } from './routes/export';
+import { apiKeysRouter } from './routes/api-keys';
+import { errorsRouter } from './routes/errors';
 import { ensureDefaultUser } from './auth';
 import { startScheduler } from './scheduler';
 import { createLogger } from './logger';
@@ -72,11 +78,35 @@ async function main() {
     res.json({ ok: true, service: 'memos', version: process.env.APP_VERSION ?? 'dev' });
   });
 
+  // Chrome extension metadata — used by the Settings page to surface a live download link.
+  app.get('/api/extension', (_req, res) => {
+    const zipPath = join(downloadsDir, 'memos-extension.zip');
+    const manifestPath = join(__dirname, '..', 'extension', 'manifest.json');
+    let extVersion: string | null = null;
+    try {
+      if (existsSync(manifestPath)) {
+        const mf = JSON.parse(readFileSync(manifestPath, 'utf8')) as { version?: string };
+        extVersion = mf.version ?? null;
+      }
+    } catch {}
+    res.json({
+      available: existsSync(zipPath),
+      downloadUrl: '/extension.zip',
+      version: extVersion,
+    });
+  });
+
   app.use('/api/branding', brandingRouter);
   app.use('/api/auth/login', authLimiter);
   app.use('/api/auth/setup', setupLimiter);
   app.use('/api/auth', authRouter);
   app.use('/api/meetings', meetingsRouter);
+  app.use('/api/highlights', highlightsRouter);
+  app.use('/api/search', searchRouter);
+  app.use('/api/linear', linearRouter);
+  app.use('/api/export', exportRouter);
+  app.use('/api/api-keys', apiKeysRouter);
+  app.use('/api/errors', errorsRouter);
   app.use('/api/calendar', calendarRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/v1', integrationApiRouter);
@@ -84,7 +114,16 @@ async function main() {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
   const clientDist = join(__dirname, '..', 'dist', 'public');
+  const downloadsDir = join(__dirname, 'downloads'); // esbuild puts us in /app/dist, so /app/dist/downloads
   const brand = getBranding();
+
+  // Serve the bundled Chrome extension zip. Handy root-level alias too.
+  if (existsSync(downloadsDir)) {
+    app.use('/downloads', express.static(downloadsDir, { maxAge: '1h' }));
+    app.get('/extension.zip', (_req, res) => {
+      res.sendFile(join(downloadsDir, 'memos-extension.zip'));
+    });
+  }
 
   let indexHtml: string | null = null;
   if (existsSync(join(clientDist, 'index.html'))) {

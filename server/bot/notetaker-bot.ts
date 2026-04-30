@@ -1,6 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { eq } from 'drizzle-orm';
 import { join } from 'path';
+import { existsSync } from 'fs';
 import { db } from '../db';
 import { meetings, bots as botsTable } from '../../shared/schema';
 import { AudioCapture } from './audio-capture';
@@ -8,9 +9,17 @@ import { driverFor } from './platform-drivers';
 import { createLogger } from '../logger';
 import { getSettings } from '../settings';
 import { processRecording } from '../services/pipeline';
+import { recordError } from '../services/error-log';
 
 const log = createLogger('notetaker-bot');
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR ?? '/data/recordings';
+const BOT_SESSION_DIR = process.env.BOT_SESSION_DIR ?? '/data/bot-session';
+const GOOGLE_SESSION_PATH = join(BOT_SESSION_DIR, 'google.json');
+
+function sessionPathFor(platform: string): string | undefined {
+  if (platform === 'google_meet' && existsSync(GOOGLE_SESSION_PATH)) return GOOGLE_SESSION_PATH;
+  return undefined;
+}
 
 interface RunningBot {
   meetingId: string;
@@ -72,10 +81,19 @@ export async function launchBotForMeeting(meetingId: string): Promise<{ botId: s
       ],
     });
 
+    const storageState = sessionPathFor(driver.platform);
+    if (storageState) {
+      log.info('using saved session', { platform: driver.platform, path: storageState });
+    }
+
     const context = await browser.newContext({
       viewport: { width: 1280, height: 800 },
       permissions: ['microphone', 'camera'],
       userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+      extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
+      ...(storageState ? { storageState } : {}),
     });
 
     const page = await context.newPage();
@@ -129,12 +147,24 @@ export async function launchBotForMeeting(meetingId: string): Promise<{ botId: s
     return { botId: bot.id };
   } catch (err) {
     log.error('bot launch failed', err);
-    await appendStatus(bot.id, 'error', err instanceof Error ? err.message : String(err));
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await appendStatus(bot.id, 'error', errMsg);
     await db.update(meetings).set({
       status: 'failed',
-      errorMessage: err instanceof Error ? err.message : String(err),
+      errorMessage: errMsg,
       updatedAt: new Date(),
     }).where(eq(meetings.id, meetingId));
+    await recordError({
+      kind: 'bot.join',
+      meetingId,
+      userId: meeting.userId,
+      message: errMsg,
+      context: {
+        platform: driver.platform,
+        meetingUrl: meeting.meetingUrl,
+        sessionPresent: Boolean(sessionPathFor(driver.platform)),
+      },
+    }).catch(() => {});
     await audio.stop().catch(() => {});
     await browser?.close().catch(() => {});
     throw err;

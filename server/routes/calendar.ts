@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { eq, desc } from 'drizzle-orm';
+import { and, eq, desc } from 'drizzle-orm';
 import { db } from '../db';
 import { calendarAccounts } from '../../shared/schema';
 import { buildAuthUrl, exchangeCode } from '../integrations/google-calendar';
@@ -15,6 +15,14 @@ const pendingStates = new Map<string, { userId: string; provider: 'google' | 'mi
 function makeState(userId: string, provider: 'google' | 'microsoft'): string {
   const state = crypto.randomBytes(16).toString('hex');
   pendingStates.set(state, { userId, provider, expires: Date.now() + 10 * 60_000 });
+  // Opportunistic GC of expired entries — avoids unbounded growth from
+  // users who bail on OAuth mid-flow.
+  if (pendingStates.size > 50) {
+    const now = Date.now();
+    for (const [k, v] of pendingStates) {
+      if (v.expires < now) pendingStates.delete(k);
+    }
+  }
   return state;
 }
 
@@ -38,16 +46,24 @@ calendarRouter.get('/accounts', requireAuth, async (req, res) => {
 });
 
 calendarRouter.delete('/accounts/:id', requireAuth, async (req, res) => {
-  await db.delete(calendarAccounts).where(eq(calendarAccounts.id, req.params.id));
+  const userId = getUserId(req);
+  const rows = await db.delete(calendarAccounts)
+    .where(and(eq(calendarAccounts.id, req.params.id), eq(calendarAccounts.userId, userId)))
+    .returning({ id: calendarAccounts.id });
+  if (rows.length === 0) return res.status(404).json({ error: 'not found' });
   res.json({ ok: true });
 });
 
 calendarRouter.post('/accounts/:id', requireAuth, async (req, res) => {
+  const userId = getUserId(req);
   const { autoJoin, joinNotifyMinutes } = req.body ?? {};
   const updates: Record<string, unknown> = {};
   if (typeof autoJoin === 'boolean') updates.autoJoin = autoJoin;
   if (typeof joinNotifyMinutes === 'number') updates.joinNotifyMinutes = joinNotifyMinutes;
-  await db.update(calendarAccounts).set(updates).where(eq(calendarAccounts.id, req.params.id));
+  const rows = await db.update(calendarAccounts).set(updates)
+    .where(and(eq(calendarAccounts.id, req.params.id), eq(calendarAccounts.userId, userId)))
+    .returning({ id: calendarAccounts.id });
+  if (rows.length === 0) return res.status(404).json({ error: 'not found' });
   res.json({ ok: true });
 });
 

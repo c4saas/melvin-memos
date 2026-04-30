@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { eq, desc, and, gte } from 'drizzle-orm';
+import { z } from 'zod';
 import { db } from '../db';
 import { meetings } from '../../shared/schema';
 import { launchBotForMeeting } from '../bot/notetaker-bot';
@@ -10,17 +11,34 @@ export const integrationApiRouter = Router();
 integrationApiRouter.use(requireAuth);
 
 integrationApiRouter.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'melvin-memos', version: '0.1.0' });
+  res.json({ ok: true, service: 'melvin-memos', version: process.env.APP_VERSION ?? 'dev' });
+});
+
+const botsBody = z.object({
+  meetingUrl: z.string().trim().min(1).max(2000),
+  title: z.string().trim().max(200).optional(),
+  scheduledFor: z.string().optional(),
 });
 
 integrationApiRouter.post('/bots', async (req, res) => {
   const userId = getUserId(req);
-  const { meetingUrl, title, scheduledFor } = req.body ?? {};
-  if (!meetingUrl) return res.status(400).json({ error: 'meetingUrl required' });
+  const parsed = botsBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ') });
+  }
+  const { meetingUrl, title, scheduledFor } = parsed.data;
   const platform = detectPlatform(meetingUrl);
   if (!platform) return res.status(400).json({ error: 'unrecognized meeting URL' });
 
-  const startAt = scheduledFor ? new Date(scheduledFor) : new Date();
+  let startAt: Date;
+  if (scheduledFor) {
+    startAt = new Date(scheduledFor);
+    if (Number.isNaN(startAt.getTime())) {
+      return res.status(400).json({ error: 'invalid scheduledFor (use ISO-8601)' });
+    }
+  } else {
+    startAt = new Date();
+  }
 
   const [row] = await db.insert(meetings).values({
     userId,
@@ -64,7 +82,10 @@ integrationApiRouter.get('/meetings/recent', async (req, res) => {
 });
 
 integrationApiRouter.get('/meetings/:id/transcript', async (req, res) => {
-  const [row] = await db.select().from(meetings).where(eq(meetings.id, req.params.id)).limit(1);
+  const userId = getUserId(req);
+  const [row] = await db.select().from(meetings)
+    .where(and(eq(meetings.id, req.params.id), eq(meetings.userId, userId)))
+    .limit(1);
   if (!row) return res.status(404).json({ error: 'not found' });
   res.json({
     id: row.id,
@@ -72,5 +93,9 @@ integrationApiRouter.get('/meetings/:id/transcript', async (req, res) => {
     transcript: row.transcript,
     summary: row.summary,
     actionItems: row.actionItems,
+    durationSeconds: row.durationSeconds,
+    platform: row.platform,
+    startAt: row.startAt,
+    tags: row.tags,
   });
 });

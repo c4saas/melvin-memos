@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { calendarAccounts } from '../../shared/schema';
 import { getSettings } from '../settings';
@@ -26,6 +26,8 @@ export async function buildMicrosoftAuthUrl(redirectUri: string, state: string):
   url.searchParams.set('scope', SCOPES.join(' '));
   url.searchParams.set('response_mode', 'query');
   url.searchParams.set('state', state);
+  // Force account picker so users can add a second Microsoft account.
+  url.searchParams.set('prompt', 'select_account');
   return url.toString();
 }
 
@@ -59,8 +61,10 @@ export async function exchangeMicrosoftCode(code: string, redirectUri: string, u
   const email = me.mail ?? me.userPrincipalName;
   if (!email) throw new Error('Microsoft did not return an email');
 
+  // Scope by userId — don't collide a different user's account with the same email.
   const existing = await db.select().from(calendarAccounts)
-    .where(eq(calendarAccounts.accountEmail, email)).limit(1);
+    .where(and(eq(calendarAccounts.userId, userId), eq(calendarAccounts.accountEmail, email)))
+    .limit(1);
 
   const values = {
     userId,
